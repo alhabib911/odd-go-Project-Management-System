@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+a,
+button:not(:disabled) {
+	cursor: pointer;
+}
+
+body {
+	font-family: Inter, Arial, sans-serif;
+}
