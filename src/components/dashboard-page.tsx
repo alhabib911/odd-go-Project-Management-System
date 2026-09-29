@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import ProfileMenu from "@/components/profile-menu";
+import { loadWorkspaceData } from "@/lib/workspace-data";
 
 type IconName =
   | "grid"
@@ -25,7 +26,7 @@ const navigation: { label: string; icon: IconName }[] = [
   { label: "Team", icon: "users" },
   { label: "Reports", icon: "chart" },
 ];
-const superadminEmail = "abdullahalhabib100@gmail.com";
+const superadminEmail = "devcluster24@gmail.com";
 
 // Keep mock data local until the Supabase data layer is connected.
 const initialProjects = [
@@ -160,35 +161,34 @@ export default function DashboardPage() {
   useEffect(() => {
     const accessTimer = window.setTimeout(() => {
       const currentUser = JSON.parse(
-        window.localStorage.getItem("focura-current-user") ?? "null",
+        window.localStorage.getItem("dev-cluster-current-user") ?? "null",
       ) as { email?: string } | null;
       const email = currentUser?.email?.toLowerCase();
-      if (!email || email === superadminEmail || email === "jordan@focura.dev") {
+      if (!email || email === superadminEmail || email === "jordan@dev-cluster.dev") {
         setAllowedNavigation(navigation);
       } else {
-        const requests = JSON.parse(
-          window.localStorage.getItem("focura-role-requests") ?? "[]",
-        ) as Array<{ email: string; status: string; access?: string[] }>;
-        const approved = requests.find(
-          (request) => request.email.toLowerCase() === email && request.status === "Approved",
-        );
-        const access = new Set(approved?.access ?? []);
-        setAllowedNavigation(navigation.filter((item) => access.has(item.label)));
+        void loadWorkspaceData<Array<{ email: string; status: string; access?: string[] }>>(
+          "dev-cluster-role-requests",
+          [],
+        ).then((requests) => {
+          const approved = requests.find(
+            (request) => request.email.toLowerCase() === email && request.status === "Approved",
+          );
+          const access = new Set(approved?.access ?? []);
+          setAllowedNavigation(navigation.filter((item) => access.has(item.label)));
+        });
       }
     }, 0);
     const timer = window.setTimeout(() => {
-      const savedProjects = window.localStorage.getItem("focura-projects");
-      const savedTasks = window.localStorage.getItem("focura-tasks");
-      const savedMembers = window.localStorage.getItem("focura-team");
+      void loadWorkspaceData<unknown[]>("dev-cluster-team", []).then((members) => {
+        setTeamCount(members.length);
+      });
 
-      if (savedProjects) {
-        const storedProjects = JSON.parse(savedProjects) as {
-          name: string;
-          clientName: string;
-        }[];
-        const storedTasks = savedTasks
-          ? (JSON.parse(savedTasks) as { project: string; status: string }[])
-          : [];
+      void Promise.all([
+        loadWorkspaceData<{ name: string; clientName: string }[]>("dev-cluster-projects", []),
+        loadWorkspaceData<{ title: string; project: string; due: string; status: string }[]>("dev-cluster-tasks", []),
+      ]).then(([storedProjects, storedTasks]) => {
+        if (storedProjects.length) {
         setProjects(
           storedProjects.map((project) => {
             const projectTasks = storedTasks.filter(
@@ -211,20 +211,9 @@ export default function DashboardPage() {
             };
           }),
         );
-      }
-      if (savedTasks) {
-        setTasks(
-          JSON.parse(savedTasks) as {
-            title: string;
-            project: string;
-            due: string;
-            status: string;
-          }[],
-        );
-      }
-      if (savedMembers) {
-        setTeamCount((JSON.parse(savedMembers) as unknown[]).length);
-      }
+        }
+        setTasks(storedTasks);
+      });
     }, 0);
     return () => {
       window.clearTimeout(accessTimer);
@@ -241,7 +230,7 @@ export default function DashboardPage() {
           <span className="grid size-[27px] place-items-center rounded-lg bg-[#2e6ff2] text-white">
             <Icon name="spark" size={17} />
           </span>
-          <span>focura</span>
+          <span>Dev Cluster</span>
         </div>
         <nav className="mt-8">
           {allowedNavigation?.map((item) => (
@@ -263,7 +252,7 @@ export default function DashboardPage() {
             <span className="grid size-[27px] place-items-center rounded-lg bg-[#2e6ff2] text-white">
               <Icon name="spark" size={16} />
             </span>
-            focura
+            Dev Cluster
           </div>
           <div className="flex items-center gap-3 text-[#a5adb7] max-md:hidden">
             <span>Workspace</span>

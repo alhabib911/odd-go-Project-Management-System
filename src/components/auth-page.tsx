@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
+import { loadWorkspaceData, saveWorkspaceData } from "@/lib/workspace-data";
 
 type AuthPageProps = {
   mode: "login" | "register";
@@ -18,12 +19,12 @@ type RoleRequest = {
   password?: string;
 };
 
-const superadminEmail = "abdullahalhabib100@gmail.com";
+const superadminEmail = "devcluster24@gmail.com";
 const demoSuperadminPassword = "admin123";
 
 function readLocalRoleRequests() {
   try {
-    return JSON.parse(window.localStorage.getItem("focura-role-requests") ?? "[]") as RoleRequest[];
+    return JSON.parse(window.localStorage.getItem("dev-cluster-role-requests") ?? "[]") as RoleRequest[];
   } catch {
     return [] as RoleRequest[];
   }
@@ -86,8 +87,8 @@ export default function AuthPage({ mode }: AuthPageProps) {
           name: isSuperadmin ? "Abdullah Al Habib" : storedUser?.name ?? normalizedEmail,
         };
 
-        window.localStorage.setItem("focura-current-user", JSON.stringify(user));
-        window.localStorage.setItem("focura-authenticated", "true");
+        window.localStorage.setItem("dev-cluster-current-user", JSON.stringify(user));
+        window.localStorage.setItem("dev-cluster-authenticated", "true");
         const approved = requests.find((request) => request.email.toLowerCase() === normalizedEmail && request.status === "Approved");
         router.push(isSuperadmin || approved?.access?.includes("Projects") ? "/projects" : "/access-denied");
         setSubmitting(false);
@@ -104,9 +105,9 @@ export default function AuthPage({ mode }: AuthPageProps) {
         access: [],
         password,
       };
-      window.localStorage.setItem("focura-role-requests", JSON.stringify([...existing, request]));
-      window.localStorage.setItem("focura-current-user", JSON.stringify({ id: request.id, name: request.name, email: request.email }));
-      window.localStorage.setItem("focura-authenticated", "true");
+      await saveWorkspaceData("dev-cluster-role-requests", [...existing, request]);
+      window.localStorage.setItem("dev-cluster-current-user", JSON.stringify({ id: request.id, name: request.name, email: request.email }));
+      window.localStorage.setItem("dev-cluster-authenticated", "true");
       router.push("/access-denied");
       setSubmitting(false);
       return;
@@ -122,14 +123,18 @@ export default function AuthPage({ mode }: AuthPageProps) {
         setSubmitting(false);
         return;
       }
-      window.localStorage.setItem("focura-current-user", JSON.stringify({ id: data.user.id, email: data.user.email }));
-      window.localStorage.setItem("focura-authenticated", "true");
+      window.localStorage.setItem("dev-cluster-current-user", JSON.stringify({ id: data.user.id, email: data.user.email }));
+      window.localStorage.setItem("dev-cluster-authenticated", "true");
       const isSuperadmin = data.user.email?.toLowerCase() === superadminEmail;
-      const requests = readLocalRoleRequests();
+      const requests = await loadWorkspaceData<RoleRequest[]>(
+        "dev-cluster-role-requests",
+        readLocalRoleRequests(),
+      );
       const approved = requests.find((request) => request.email.toLowerCase() === data.user.email?.toLowerCase() && request.status === "Approved");
       router.push(isSuperadmin || approved?.access?.includes("Projects") ? "/projects" : "/access-denied");
       return;
     }
+
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
@@ -140,11 +145,14 @@ export default function AuthPage({ mode }: AuthPageProps) {
       setSubmitting(false);
       return;
     }
-    const existing = readLocalRoleRequests();
+    const existing = await loadWorkspaceData<RoleRequest[]>(
+      "dev-cluster-role-requests",
+      readLocalRoleRequests(),
+    );
     const request = { id: data.user.id, name: form.name.trim(), email, status: "Pending", requestedAt: new Date().toISOString() };
-    window.localStorage.setItem("focura-role-requests", JSON.stringify([...existing, request]));
-    window.localStorage.setItem("focura-current-user", JSON.stringify({ id: data.user.id, name: request.name, email: request.email }));
-    window.localStorage.setItem("focura-authenticated", "true");
+    await saveWorkspaceData("dev-cluster-role-requests", [...existing, request]);
+    window.localStorage.setItem("dev-cluster-current-user", JSON.stringify({ id: request.id, name: request.name, email: request.email }));
+    window.localStorage.setItem("dev-cluster-authenticated", "true");
     router.push("/access-denied");
   }
 
@@ -159,7 +167,7 @@ export default function AuthPage({ mode }: AuthPageProps) {
           <div className="relative flex h-full min-h-[570px] flex-col">
             <Link href="/" className="flex items-center gap-2 font-sans text-xl font-bold tracking-[-0.7px] text-white no-underline">
               <span className="grid size-7 place-items-center rounded-lg bg-[#2e6ff2] text-sm text-white">✦</span>
-              focura
+              Dev Cluster
             </Link>
             <div className="mt-auto">
               <span className="mb-4 block text-[10px] font-semibold uppercase tracking-[0.18em] text-[#f2ad66]">A calmer way to work</span>
@@ -175,7 +183,7 @@ export default function AuthPage({ mode }: AuthPageProps) {
         <section className="p-7 sm:p-10 lg:p-12">
           <Link href="/" className="flex items-center gap-2 font-sans text-xl font-bold tracking-[-0.7px] text-[#18232f] no-underline lg:hidden">
             <span className="grid size-7 place-items-center rounded-lg bg-[#2e6ff2] text-sm text-white">✦</span>
-            focura
+            Dev Cluster
           </Link>
           <div className="mt-10 max-w-[390px] lg:mt-5">
             <span className="mb-3 block text-[10px] font-bold uppercase tracking-[0.16em] text-[#e7954a]">{content.eyebrow}</span>

@@ -3,6 +3,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import WorkspaceSidebar, { Icon } from "@/components/workspace-sidebar";
 import ProfileMenu, { defaultProfile, ProfileData } from "@/components/profile-menu";
+import { loadWorkspaceData, saveWorkspaceData } from "@/lib/workspace-data";
 
 type DocumentItem = {
   id: string;
@@ -35,26 +36,23 @@ export default function ProfilePage() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const currentUser = JSON.parse(
-        window.localStorage.getItem("focura-current-user") ?? "null",
+        window.localStorage.getItem("dev-cluster-current-user") ?? "null",
       ) as { id?: string; name?: string; email?: string } | null;
       const email = currentUser?.email ?? defaultProfile.email;
-      const storedDocuments = window.localStorage.getItem(
-        `focura-profile-documents:${email}`,
-      );
-      if (storedDocuments)
-        setDocuments(JSON.parse(storedDocuments) as DocumentItem[]);
-      const requests = JSON.parse(
-        window.localStorage.getItem("focura-role-requests") ?? "[]",
-      ) as Array<{ email: string; name?: string; teamName?: string; role?: string }>;
-      const registration = requests.find(
-        (request) => request.email.toLowerCase() === email.toLowerCase(),
-      );
-      const stored = window.localStorage.getItem(`focura-profile:${email}`);
-      const members = window.localStorage.getItem("focura-team");
-      const savedProjects = window.localStorage.getItem("focura-projects");
-      if (stored) setProfile({ ...defaultProfile, ...(JSON.parse(stored) as Partial<ProfileData>) });
-      else if (members) {
-        const member = (JSON.parse(members) as Array<ProfileData & { teamName: string }>).find((item) => item.email.toLowerCase() === email.toLowerCase());
+      void Promise.all([
+        loadWorkspaceData<DocumentItem[]>(`dev-cluster-profile-documents:${email}`, []),
+        loadWorkspaceData<Array<{ email: string; name?: string; teamName?: string; role?: string }>>("dev-cluster-role-requests", []),
+        loadWorkspaceData<Partial<ProfileData> | null>(`dev-cluster-profile:${email}`, null),
+        loadWorkspaceData<Array<ProfileData & { teamName: string }>>("dev-cluster-team", []),
+        loadWorkspaceData<Project[]>("dev-cluster-projects", []),
+      ]).then(([storedDocuments, requests, storedProfile, members, savedProjects]) => {
+        setDocuments(storedDocuments);
+        const registration = requests.find(
+          (request) => request.email.toLowerCase() === email.toLowerCase(),
+        );
+        if (storedProfile) setProfile({ ...defaultProfile, ...storedProfile });
+        else {
+          const member = members.find((item) => item.email.toLowerCase() === email.toLowerCase());
         if (member) setProfile((current) => ({ ...current, ...member, technology: member.technology ?? "" }));
         else setProfile((current) => ({
           ...current,
@@ -62,15 +60,9 @@ export default function ProfilePage() {
           email,
           teamName: registration?.teamName ?? registration?.role ?? "",
         }));
-      } else {
-        setProfile((current) => ({
-          ...current,
-          name: registration?.name ?? currentUser?.name ?? (email === defaultProfile.email ? defaultProfile.name : email.split("@")[0]),
-          email,
-          teamName: registration?.teamName ?? registration?.role ?? "",
-        }));
-      }
-      if (savedProjects) setProjects(JSON.parse(savedProjects) as Project[]);
+        }
+        setProjects(savedProjects);
+      });
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -88,13 +80,13 @@ export default function ProfilePage() {
     setProfile((current) => ({ ...current, [field]: value }));
     setSaved(false);
   }
-  function save(event: FormEvent) {
+  async function save(event: FormEvent) {
     event.preventDefault();
-    window.localStorage.setItem(`focura-profile:${profile.email}`, JSON.stringify(profile));
-    const members = window.localStorage.getItem("focura-team");
-    if (members) {
-      const next = (JSON.parse(members) as Array<ProfileData & { id: string }>).map((member) => member.email === profile.email ? { ...member, ...profile, skills: profile.technology.split(",").map((item) => item.trim()).filter(Boolean) } : member);
-      window.localStorage.setItem("focura-team", JSON.stringify(next));
+    await saveWorkspaceData(`dev-cluster-profile:${profile.email}`, profile);
+    const members = await loadWorkspaceData<Array<ProfileData & { id: string }>>("dev-cluster-team", []);
+    if (members.length) {
+      const next = members.map((member) => member.email === profile.email ? { ...member, ...profile, skills: profile.technology.split(",").map((item) => item.trim()).filter(Boolean) } : member);
+      await saveWorkspaceData("dev-cluster-team", next);
     }
     setSaved(true);
   }
@@ -147,10 +139,11 @@ export default function ProfilePage() {
         data,
       };
       const next = [...documents, nextDocument];
-      window.localStorage.setItem(
-        `focura-profile-documents:${profile.email}`,
-        JSON.stringify(next),
-      );
+      const saveError = await saveWorkspaceData(`dev-cluster-profile-documents:${profile.email}`, next);
+      if (saveError) {
+        setDocumentError(saveError);
+        return;
+      }
 
       setDocuments((current) => [nextDocument, ...current]);
       setDocumentType("");

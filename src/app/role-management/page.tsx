@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import WorkspaceSidebar from "@/components/workspace-sidebar";
 import ProfileMenu from "@/components/profile-menu";
+import { loadWorkspaceData, saveWorkspaceData } from "@/lib/workspace-data";
 
 type Request = { id: string; name: string; email: string; status: "Pending" | "Approved" | "Rejected"; requestedAt: string; teamName?: string; role?: string; access?: string[] };
 type Team = { id: string; name: string; logo: string };
@@ -23,9 +24,13 @@ export default function RoleManagementPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setRequests(JSON.parse(window.localStorage.getItem("focura-role-requests") ?? "[]") as Request[]);
-      const storedTeams = JSON.parse(window.localStorage.getItem("focura-teams") ?? "[]") as Team[];
+      void Promise.all([
+        loadWorkspaceData<Request[]>("dev-cluster-role-requests", []),
+        loadWorkspaceData<Team[]>("dev-cluster-teams", defaultTeams),
+      ]).then(([storedRequests, storedTeams]) => {
+        setRequests(storedRequests);
       setTeams(storedTeams.length ? storedTeams : defaultTeams);
+      });
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -35,11 +40,11 @@ export default function RoleManagementPage() {
     if (!request) return;
     const next = requests.map((item) => item.id === id ? { ...item, status, teamName: status === "Approved" ? teamName : item.teamName, role: status === "Approved" ? teamName : item.role, access: status === "Approved" ? access : item.access } : item);
     setRequests(next);
-    window.localStorage.setItem("focura-role-requests", JSON.stringify(next));
+    void saveWorkspaceData("dev-cluster-role-requests", next);
     if (status === "Approved") {
-      const members = JSON.parse(window.localStorage.getItem("focura-team") ?? "[]") as Array<Record<string, unknown>>;
+      const members = JSON.parse(window.localStorage.getItem("dev-cluster-team") ?? "[]") as Array<Record<string, unknown>>;
       const nextMember = { id: request.id, name: request.name, email: request.email, phone: "", avatarUrl: "", role: teamName, teamName, status: "Active", skills: [], dashboardAccess: access };
-      window.localStorage.setItem("focura-team", JSON.stringify([...members, nextMember]));
+      void saveWorkspaceData("dev-cluster-team", [...members, nextMember]);
       setSelected(null);
     }
   }

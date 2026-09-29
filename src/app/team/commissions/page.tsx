@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import WorkspaceSidebar, { Icon } from "@/components/workspace-sidebar";
 import ProfileMenu from "@/components/profile-menu";
+import { loadWorkspaceData } from "@/lib/workspace-data";
 
 type Member = {
   id: string;
@@ -38,9 +39,9 @@ type CommissionRow = Member & {
 };
 
 const initialMembers: Member[] = [
-  { id: "1", name: "Jordan Davis", email: "jordan@focura.dev", phone: "", role: "Backend Developer", teamName: "Engineering", status: "Active" },
-  { id: "2", name: "Ava Morgan", email: "ava@focura.dev", phone: "", role: "UI/UX Designer", teamName: "Design", status: "Active" },
-  { id: "3", name: "Riley Khan", email: "riley@focura.dev", phone: "", role: "Frontend Developer", teamName: "Engineering", status: "Active" },
+  { id: "1", name: "Jordan Davis", email: "jordan@dev-cluster.dev", phone: "", role: "Backend Developer", teamName: "Engineering", status: "Active" },
+  { id: "2", name: "Ava Morgan", email: "ava@dev-cluster.dev", phone: "", role: "UI/UX Designer", teamName: "Design", status: "Active" },
+  { id: "3", name: "Riley Khan", email: "riley@dev-cluster.dev", phone: "", role: "Frontend Developer", teamName: "Engineering", status: "Active" },
 ];
 
 function money(value: number) {
@@ -67,12 +68,15 @@ export default function TeamCommissionsPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const savedMembers = window.localStorage.getItem("focura-team");
-      const savedProjects = window.localStorage.getItem("focura-projects");
-      if (savedMembers) setMembers(JSON.parse(savedMembers) as Member[]);
-      if (savedProjects) setProjects(JSON.parse(savedProjects) as Project[]);
-      const savedTasks = window.localStorage.getItem("focura-tasks");
-      if (savedTasks) setTasks(JSON.parse(savedTasks) as { project: string; status: string; due?: string }[]);
+      void Promise.all([
+        loadWorkspaceData<Member[]>("dev-cluster-team", initialMembers),
+        loadWorkspaceData<Project[]>("dev-cluster-projects", []),
+        loadWorkspaceData<{ project: string; status: string; due?: string }[]>("dev-cluster-tasks", []),
+      ]).then(([storedMembers, storedProjects, storedTasks]) => {
+        setMembers(storedMembers);
+        setProjects(storedProjects);
+        setTasks(storedTasks);
+      });
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -119,7 +123,7 @@ export default function TeamCommissionsPage() {
         <header className="flex h-[72px] items-center justify-between border-b border-[#e9edf2] bg-white px-[47px] max-lg:px-7 max-md:h-[62px] max-md:px-[18px]">
           <div className="hidden items-center gap-[9px] font-sans text-lg font-bold max-md:flex">
             <span className="grid size-[27px] place-items-center rounded-lg bg-[#2e6ff2] text-white"><Icon name="spark" size={16} /></span>
-            focura
+            Dev Cluster
           </div>
           <div className="flex items-center gap-3 text-[#a5adb7] max-md:hidden"><span>Workspace</span><b>/</b><strong>Team member commission</strong></div>
           <div className="flex items-center gap-[17px]"><ProfileMenu /></div>

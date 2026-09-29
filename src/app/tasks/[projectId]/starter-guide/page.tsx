@@ -12,6 +12,7 @@ import {
 } from "react";
 import WorkspaceSidebar, { Icon } from "@/components/workspace-sidebar";
 import ProfileMenu from "@/components/profile-menu";
+import { loadWorkspaceData, saveWorkspaceData } from "@/lib/workspace-data";
 
 type TeamName =
   "UI/UX" | "Frontend" | "Backend" | "Database" | "Full Stack" | "Sales";
@@ -93,17 +94,17 @@ type TaskForm = {
 
 const teamMembers: Record<TeamName, Member[]> = {
   "UI/UX": [
-    { name: "Ava Morgan", email: "ava@focura.dev" },
-    { name: "Maya Chen", email: "maya@focura.dev" },
+    { name: "Ava Morgan", email: "ava@dev-cluster.dev" },
+    { name: "Maya Chen", email: "maya@dev-cluster.dev" },
   ],
   Frontend: [
-    { name: "Riley Khan", email: "riley@focura.dev" },
-    { name: "Theo Grant", email: "theo@focura.dev" },
+    { name: "Riley Khan", email: "riley@dev-cluster.dev" },
+    { name: "Theo Grant", email: "theo@dev-cluster.dev" },
   ],
-  Backend: [{ name: "Jordan Davis", email: "jordan@focura.dev" }],
-  Database: [{ name: "Mina Park", email: "mina@focura.dev" }],
-  "Full Stack": [{ name: "Noah Wilson", email: "noah@focura.dev" }],
-  Sales: [{ name: "Sam Lee", email: "sam@focura.dev" }],
+  Backend: [{ name: "Jordan Davis", email: "jordan@dev-cluster.dev" }],
+  Database: [{ name: "Mina Park", email: "mina@dev-cluster.dev" }],
+  "Full Stack": [{ name: "Noah Wilson", email: "noah@dev-cluster.dev" }],
+  Sales: [{ name: "Sam Lee", email: "sam@dev-cluster.dev" }],
 };
 const teams = Object.keys(teamMembers) as TeamName[];
 const priorityColors = ["#d8665d", "#d58b35", "#2e6ff2", "#45b990", "#875b67"];
@@ -147,14 +148,12 @@ export default function StarterGuidePage({
   const [, refreshCountdown] = useState(0);
 
   useEffect(() => {
-    params.then(({ projectId: routeId }) => {
+    params.then(async ({ projectId: routeId }) => {
       const decodedId = decodeURIComponent(routeId);
-      const savedProjects = JSON.parse(
-        window.localStorage.getItem("focura-projects") ?? "[]",
-      ) as Project[];
-      const savedTasks = JSON.parse(
-        window.localStorage.getItem("focura-tasks") ?? "[]",
-      ) as Task[];
+      const [savedProjects, savedTasks] = await Promise.all([
+        loadWorkspaceData<Project[]>("dev-cluster-projects", []),
+        loadWorkspaceData<Task[]>("dev-cluster-tasks", []),
+      ]);
       const match = savedProjects.find(
         (item) => item.id === decodedId || item.name === decodedId,
       );
@@ -269,7 +268,7 @@ export default function StarterGuidePage({
       assignedAt: editingCard?.assignedAt ?? timestamp,
       assignedBy: editingCard?.assignedBy ?? {
         name: "Jordan Davis",
-        email: "jordan@focura.dev",
+        email: "jordan@dev-cluster.dev",
       },
       comments,
       status: form.status,
@@ -305,16 +304,17 @@ export default function StarterGuidePage({
       activity: [activity],
     };
     const tasks = JSON.parse(
-      window.localStorage.getItem("focura-tasks") ?? "[]",
+      window.localStorage.getItem("dev-cluster-tasks") ?? "[]",
     ) as Task[];
     if (editingCard) {
       const nextCards = cards.map((item) =>
         item.id === editingCard.id ? card : item,
       );
+      const nextTasks = persistGuideCards(tasks, nextCards, taskData);
       try {
         window.localStorage.setItem(
-          "focura-tasks",
-          JSON.stringify(persistGuideCards(tasks, nextCards, taskData)),
+          "dev-cluster-tasks",
+          JSON.stringify(nextTasks),
         );
       } catch (error) {
         setFormError(
@@ -324,16 +324,18 @@ export default function StarterGuidePage({
         );
         return;
       }
+      void saveWorkspaceData("dev-cluster-tasks", nextTasks);
       setCards(nextCards);
       setEditingCard(null);
       setIsOpen(false);
       return;
     }
     const nextCards = [...cards, card];
+    const nextTasks = persistGuideCards(tasks, nextCards, taskData);
     try {
       window.localStorage.setItem(
-        "focura-tasks",
-        JSON.stringify(persistGuideCards(tasks, nextCards, taskData)),
+        "dev-cluster-tasks",
+        JSON.stringify(nextTasks),
       );
     } catch (error) {
       setFormError(
@@ -343,6 +345,7 @@ export default function StarterGuidePage({
       );
       return;
     }
+    void saveWorkspaceData("dev-cluster-tasks", nextTasks);
     setCards(nextCards);
     setIsOpen(false);
   }
@@ -350,12 +353,11 @@ export default function StarterGuidePage({
   function deleteCard(cardId: string) {
     const nextCards = cards.filter((card) => card.id !== cardId);
     const tasks = JSON.parse(
-      window.localStorage.getItem("focura-tasks") ?? "[]",
+      window.localStorage.getItem("dev-cluster-tasks") ?? "[]",
     ) as Task[];
-    window.localStorage.setItem(
-      "focura-tasks",
-      JSON.stringify(persistGuideCards(tasks, nextCards)),
-    );
+    const nextTasks = persistGuideCards(tasks, nextCards);
+    window.localStorage.setItem("dev-cluster-tasks", JSON.stringify(nextTasks));
+    void saveWorkspaceData("dev-cluster-tasks", nextTasks);
     setCards(nextCards);
   }
 
@@ -382,12 +384,11 @@ export default function StarterGuidePage({
         : card,
     );
     const tasks = JSON.parse(
-      window.localStorage.getItem("focura-tasks") ?? "[]",
+      window.localStorage.getItem("dev-cluster-tasks") ?? "[]",
     ) as Task[];
-    window.localStorage.setItem(
-      "focura-tasks",
-      JSON.stringify(persistGuideCards(tasks, nextCards, { status })),
-    );
+    const nextTasks = persistGuideCards(tasks, nextCards, { status });
+    window.localStorage.setItem("dev-cluster-tasks", JSON.stringify(nextTasks));
+    void saveWorkspaceData("dev-cluster-tasks", nextTasks);
     setCards(nextCards);
     setViewingCard((current) => {
       const updated = nextCards.find((card) => card.id === cardId);
@@ -404,7 +405,7 @@ export default function StarterGuidePage({
             <span className="grid size-[27px] place-items-center rounded-lg bg-[#2e6ff2] text-white">
               <Icon name="spark" size={16} />
             </span>
-            focura
+            Dev Cluster
           </div>
           <div className="flex items-center gap-[9px] text-[#a5adb7] max-md:hidden">
             <span>Workspace</span>

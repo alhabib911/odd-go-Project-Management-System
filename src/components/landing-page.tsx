@@ -5,7 +5,7 @@ export default function LandingPage() {
     <main className="min-h-screen overflow-hidden bg-[#F8FAFC] text-[#1F2937]">
       <nav className="mx-auto flex h-[84px] max-w-[1220px] items-center justify-between px-[22px] max-md:h-[72px]">
         <Link href="/" className="flex items-center gap-[9px] font-sans text-[20px] font-bold tracking-[-0.5px] text-[#1F2937] no-underline">
-          <span className="grid size-[27px] place-items-center rounded-lg bg-[#2563EB] text-white">✦</span>Odd-Go
+          <span className="grid size-[27px] place-items-center rounded-lg bg-[#2563EB] text-white">✦</span>Dev Cluster
         </Link>
         <div className="ml-20 flex gap-[34px] max-md:hidden">
           <Link href="/" className="text-sm font-medium text-[#64748B] no-underline hover:text-[#2563EB]">
@@ -40,7 +40,7 @@ export default function LandingPage() {
             Achieve more.
           </h1>
           <p className="mb-7 max-w-[390px] text-base leading-[1.7] text-[#64748B]">
-            Odd-Go brings your projects, tasks, and workflow into one organized place—helping you stay focused, work efficiently, and get more done.
+            Dev Cluster brings your projects, tasks, and workflow into one organized place—helping you stay focused, work efficiently, and get more done.
           </p>
           <div className="flex items-center gap-[22px]">
             <Link href="/register" className="inline-flex items-center gap-[18px] rounded-lg bg-[#2563EB] px-4 py-3 text-sm font-semibold text-white no-underline shadow-[0_7px_18px_rgba(37,99,235,0.18)] hover:bg-[#1D4ED8]">
@@ -117,10 +117,10 @@ export default function LandingPage() {
       </section>
       <footer id="about" className="mx-auto flex max-w-[1220px] items-center gap-[34px] border-t border-[#E2E8F0] px-[22px] py-[25px] text-xs text-[#94A3B8] max-md:flex-wrap">
         <Link href="/" className="flex items-center gap-[9px] font-sans text-lg font-bold tracking-[-0.5px] text-[#1F2937] no-underline">
-          <span className="grid size-[27px] place-items-center rounded-lg bg-[#2563EB] text-white">✦</span>Odd-Go
+          <span className="grid size-[27px] place-items-center rounded-lg bg-[#2563EB] text-white">✦</span>Dev Cluster
         </Link>
         <span>Plan. Organize. Progress.</span>
-        <span>© 2026 Odd-Go. All rights reserved.</span>
+        <span>© 2026 Dev Cluster. All rights reserved.</span>
       </footer>
     </main>
   );

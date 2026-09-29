@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import WorkspaceSidebar, { Icon } from "@/components/workspace-sidebar";
 import ProfileMenu from "@/components/profile-menu";
+import { loadWorkspaceData, saveWorkspaceData } from "@/lib/workspace-data";
 
 type Task = {
   id: string;
@@ -219,20 +220,22 @@ export default function TasksPage() {
   const [completedPage, setCompletedPage] = useState(1);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("focura-tasks");
-    const savedProjects = window.localStorage.getItem("focura-projects");
     const timer = window.setTimeout(() => {
-      if (saved) setTasks(JSON.parse(saved) as Task[]);
-      if (savedProjects)
-        setProjects(JSON.parse(savedProjects) as ProjectOption[]);
-      setHydrated(true);
+      void Promise.all([
+        loadWorkspaceData<Task[]>("dev-cluster-tasks", initialTasks),
+        loadWorkspaceData<ProjectOption[]>("dev-cluster-projects", []),
+      ]).then(([storedTasks, storedProjects]) => {
+        setTasks(storedTasks);
+        setProjects(storedProjects);
+        setHydrated(true);
+      });
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
     if (hydrated)
-      window.localStorage.setItem("focura-tasks", JSON.stringify(tasks));
+      void saveWorkspaceData("dev-cluster-tasks", tasks);
   }, [hydrated, tasks]);
 
   function updateForm(field: keyof Omit<Task, "id">, value: string) {
@@ -418,7 +421,7 @@ export default function TasksPage() {
             <span className="grid size-[27px] place-items-center rounded-lg bg-[#2e6ff2] text-white">
               <Icon name="spark" size={16} />
             </span>
-            focura
+            Dev Cluster
           </div>
           <div className="flex items-center gap-[9px] text-[#a5adb7] max-md:hidden">
             <span>Workspace</span>

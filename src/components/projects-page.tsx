@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { jsPDF } from "jspdf";
 import WorkspaceSidebar, { Icon } from "@/components/workspace-sidebar";
 import ProfileMenu from "@/components/profile-menu";
+import { loadWorkspaceData, saveWorkspaceData } from "@/lib/workspace-data";
 
 type TechnologyCategory = "Frontend" | "CSS" | "Backend" | "Database";
 type Project = {
@@ -33,6 +34,7 @@ type Project = {
   paymentMethod: string;
   payableAmount: string;
   cashReceivedBy?: string;
+  invoiceDate?: string;
   status: "Ongoing" | "Review" | "Done" | "Cancel";
   deliveryDate: string;
 };
@@ -266,6 +268,7 @@ function getProjectPaymentSummary(project: Project | ProjectForm) {
 function projectChanges(previous: Project, next: Project) {
   const fields: Array<[keyof Project, string]> = [
     ["invoiceNumber", "Invoice number"],
+    ["invoiceDate", "Invoice date"],
     ["name", "Project name"],
     ["clientName", "Client name"],
     ["description", "Description"],
@@ -484,12 +487,12 @@ export default function ProjectsPage() {
   });
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("focura-projects");
-    const savedActivity = window.localStorage.getItem("focura-activity");
-    const savedClients = window.localStorage.getItem("focura-clients");
     const timer = window.setTimeout(() => {
-      if (saved) {
-        const storedProjects = JSON.parse(saved) as Project[];
+      void Promise.all([
+        loadWorkspaceData<Project[]>("dev-cluster-projects", initialProjects),
+        loadWorkspaceData<ClientRecord[]>("dev-cluster-clients", []),
+        loadWorkspaceData<Record<string, ActivityEvent[]> | null>("dev-cluster-activity", null),
+      ]).then(([storedProjects, storedClients, savedActivity]) => {
         setProjects(
           storedProjects.map((project) => ({
             ...project,
@@ -497,68 +500,58 @@ export default function ProjectsPage() {
             deliveryDate: project.deliveryDate ?? "",
           })),
         );
-      }
-      if (savedClients) {
-        const storedClients = JSON.parse(savedClients) as ClientRecord[];
-        setClients(storedClients);
-        setClientNameOptions(
-          Array.from(new Set([...storedClients.map((client) => client.name)])),
-        );
-        setClientSourceList(
-          Array.from(
-            new Set([
-              ...clientSourceOptions,
-              ...storedClients.map((client) => client.source),
-            ]),
-          ),
-        );
-      }
-      if (savedActivity) {
-        setActivityLogs(
-          JSON.parse(savedActivity) as Record<string, ActivityEvent[]>,
-        );
-      } else {
-        const storedProjects = saved
-          ? (JSON.parse(saved) as Project[])
-          : initialProjects;
-        setActivityLogs(
-          Object.fromEntries(
-            storedProjects.map((project) => [
-              project.id,
-              [
-                {
-                  id: `created-${project.id}`,
-                  action: "Invoice created",
-                  detail: `Invoice ${project.invoiceNumber} was created for ${project.name}`,
-                  profile: "Jordan Davis (Admin)",
-                  timestamp: new Date().toISOString(),
-                },
-              ],
-            ]),
-          ),
-        );
-      }
-      setHydrated(true);
+        if (storedClients.length) {
+          setClients(storedClients);
+          setClientNameOptions(
+            Array.from(new Set(storedClients.map((client) => client.name))),
+          );
+          setClientSourceList(
+            Array.from(
+              new Set([
+                ...clientSourceOptions,
+                ...storedClients.map((client) => client.source),
+              ]),
+            ),
+          );
+        }
+        if (savedActivity) setActivityLogs(savedActivity);
+        else {
+          setActivityLogs(
+            Object.fromEntries(
+              storedProjects.map((project) => [
+                project.id,
+                [
+                  {
+                    id: `created-${project.id}`,
+                    action: "Invoice created",
+                    detail: `Invoice ${project.invoiceNumber} was created for ${project.name}`,
+                    profile: "Jordan Davis (Admin)",
+                    timestamp: new Date().toISOString(),
+                  },
+                ],
+              ]),
+            ),
+          );
+        }
+        setHydrated(true);
+      });
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
     if (hydrated)
-      window.localStorage.setItem("focura-projects", JSON.stringify(projects));
+      void saveWorkspaceData("dev-cluster-projects", projects);
   }, [hydrated, projects]);
 
   useEffect(() => {
     if (hydrated)
-      window.localStorage.setItem("focura-clients", JSON.stringify(clients));
+      void saveWorkspaceData("dev-cluster-clients", clients);
   }, [clients, hydrated]);
 
   useEffect(() => {
     if (hydrated)
-      window.localStorage.setItem(
-        "focura-activity",
-        JSON.stringify(activityLogs),
-      );
+      void saveWorkspaceData("dev-cluster-activity", activityLogs);
   }, [activityLogs, hydrated]);
 
   function logActivity(projectId: string, action: string, detail: string) {
@@ -747,16 +740,17 @@ export default function ProjectsPage() {
       form.salesCommissionMode === "percent"
         ? lineTotal * ((Number(form.salesCommission) || 0) / 100)
         : Number(form.salesCommission) || 0;
+    const previousProject = editingId
+      ? projects.find((item) => item.id === editingId)
+      : undefined;
     const project = {
       ...form,
+      invoiceDate: previousProject?.invoiceDate ?? new Date().toISOString(),
       price: String(lineTotal),
       commissionAmount: String(commissionAmount),
       salesCommission: String(salesCommission),
       id: editingId ?? crypto.randomUUID(),
     };
-    const previousProject = editingId
-      ? projects.find((item) => item.id === editingId)
-      : undefined;
     logActivity(
       project.id,
       editingId ? "Project edited" : "Invoice created",
@@ -804,12 +798,22 @@ export default function ProjectsPage() {
   }
 
   function viewInvoice(project: Project) {
+    const invoiceProject = project.invoiceDate
+      ? project
+      : { ...project, invoiceDate: new Date().toISOString() };
+    if (!project.invoiceDate) {
+      setProjects((current) =>
+        current.map((item) =>
+          item.id === project.id ? invoiceProject : item,
+        ),
+      );
+    }
     logActivity(
       project.id,
       "Invoice viewed",
       `Viewed invoice ${project.invoiceNumber}`,
     );
-    setInvoiceProject(project);
+    setInvoiceProject(invoiceProject);
   }
 
   return (
@@ -821,7 +825,7 @@ export default function ProjectsPage() {
             <span className="grid size-[27px] place-items-center rounded-lg bg-[#2e6ff2] text-white">
               <Icon name="spark" size={16} />
             </span>
-            focura
+            Dev Cluster
           </div>
           <div className="flex items-center gap-[9px] text-[#a5adb7] max-md:hidden">
             <span>Workspace</span>
@@ -2212,6 +2216,10 @@ function InvoiceModal({
     project.commissionMode === "percent"
       ? subtotal * ((Number(project.commissionPercent) || 0) / 100)
       : Number(project.commissionAmount) || 0;
+  const salesPersonCommission =
+    project.salesCommissionMode === "percent"
+      ? subtotal * ((Number(project.salesCommission) || 0) / 100)
+      : Number(project.salesCommission) || 0;
   const {
     totalAmount: total,
     paidAmount: payable,
@@ -2221,194 +2229,408 @@ function InvoiceModal({
   const technologies = categories.flatMap(
     (category) => project.technologies?.[category] ?? [],
   );
+  const issuedDate = project.invoiceDate ? new Date(project.invoiceDate) : null;
+  const invoiceDate = !issuedDate || Number.isNaN(issuedDate.getTime())
+    ? "-"
+    : issuedDate.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
+  const deliveryDate = project.deliveryDate
+    ? new Date(`${project.deliveryDate}T00:00:00`).toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      })
+    : "-";
+  const detailCharacterCount = items.reduce(
+    (totalCharacters, item) => totalCharacters + item.work.length,
+    project.description.length,
+  );
+  const detailFontSize = Math.max(
+    7,
+    10 -
+      Math.max(0, items.length - 4) * 0.25 -
+      Math.max(0, detailCharacterCount - 320) / 220,
+  );
   function downloadInvoice() {
-    const pdf = new jsPDF();
-    const left = 18;
-    let y = 22;
-    const line = (label: string, value: string) => {
-      if (y > 275) {
-        pdf.addPage();
-        y = 22;
-      }
+    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const left = 14;
+    const right = 196;
+    const pageWidth = 210;
+    let y = 0;
+
+    const drawHeader = (continuation = false) => {
+      pdf.setFillColor(39, 46, 54);
+      pdf.rect(0, 0, pageWidth, 44, "F");
+      pdf.setFillColor(229, 145, 18);
+      pdf.rect(108, 0, 102, 5, "F");
+      pdf.rect(0, 40, pageWidth, 4, "F");
+      pdf.setTextColor(229, 145, 18);
       pdf.setFont("helvetica", "bold");
-      pdf.text(label, left, y);
+      pdf.setFontSize(23);
+      pdf.text("F", left, 21);
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(18);
+      pdf.text("DEV CLUSTER", left + 9, 19);
+      pdf.setFontSize(7);
       pdf.setFont("helvetica", "normal");
-      const wrapped = pdf.splitTextToSize(value || "-", 155);
-      pdf.text(wrapped, left + 42, y);
-      y += Math.max(7, wrapped.length * 5);
+      pdf.text("PROJECT MANAGEMENT", left + 9, 25);
+      pdf.setTextColor(229, 145, 18);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(24);
+      pdf.text(continuation ? "INVOICE" : "INVOICE", right, 18, {
+        align: "right",
+      });
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(8);
+      pdf.text(`Invoice Number: ${project.invoiceNumber}`, right, 26, {
+        align: "right",
+      });
+      pdf.text(`Invoice Date: ${invoiceDate}`, right, 32, { align: "right" });
     };
-    pdf.setFillColor(46, 111, 242);
-    pdf.rect(0, 0, 210, 8, "F");
+
+    const drawTableHeader = () => {
+      pdf.setFillColor(229, 145, 18);
+      pdf.rect(left, y, right - left, 10, "F");
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(7.5);
+      pdf.text("DATE", left + 4, y + 6.5);
+      pdf.text("PROJECT DETAILS", left + 34, y + 6.5);
+      pdf.text("AMOUNT", right - 4, y + 6.5, { align: "right" });
+      y += 10;
+    };
+
+    drawHeader();
+    y = 54;
+    pdf.setTextColor(229, 145, 18);
     pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(22);
-    pdf.text("Focura", left, y);
-    pdf.setFontSize(10);
-    pdf.setFont("helvetica", "normal");
-    pdf.text(
-      "Dhaka, Bangladesh | hello@focura.com | +880 1XXX-XXXXXX",
-      left,
-      y + 7,
-    );
-    pdf.setFont("helvetica", "bold");
-    pdf.text(`INVOICE  ${project.invoiceNumber}`, 135, y);
-    y += 25;
-    pdf.setDrawColor(225, 230, 236);
-    pdf.line(left, y - 5, 192, y - 5);
-    pdf.setFontSize(10);
-    line("Project", project.name);
-    line("Client", project.clientName);
-    line("Description", project.description);
-    line("Project type", `${project.projectType} / ${project.technologyType}`);
-    line("Technology", technologies.join(", "));
-    line("Sales person", project.contactPerson);
-    line("Collection", project.collectionWay);
-    line("Commission platform", project.commissionPlatform);
-    line("Payment", project.paymentMethod ?? "-");
-    y += 3;
-    pdf.setFont("helvetica", "bold");
-    pdf.text("WORK / SERVICE", left, y);
-    pdf.text("AMOUNT", 165, y);
+    pdf.setFontSize(8);
+    pdf.text("INVOICE TO", left, y);
+    pdf.text("PAYMENT DETAILS", 120, y);
     y += 7;
+    pdf.setTextColor(39, 46, 54);
+    pdf.setFontSize(12);
+    pdf.text(project.clientName || "-", left, y);
+    pdf.setFontSize(8);
     pdf.setFont("helvetica", "normal");
-    items.forEach((item) => {
-      const wrapped = pdf.splitTextToSize(item.work || "Untitled item", 135);
-      pdf.text(wrapped, left, y);
-      pdf.text(money(item.amount, currency), 165, y);
-      y += Math.max(7, wrapped.length * 5);
-    });
-    y += 3;
-    pdf.line(left, y - 4, 192, y - 4);
-    line("Sub total", money(String(subtotal), currency));
-    line("Commission", `- ${money(String(commission), currency)}`);
-    line("Discount", `- ${money(project.discount, currency)}`);
-    line("Pay amount", money(String(payable), currency));
-    line("Due amount", money(String(due), currency));
-    line("Payment status", paymentStatus);
-    if (project.paymentMethod === "Cash")
-      line("Cash received by", project.cashReceivedBy ?? "-");
-    y += 3;
-    pdf.setFillColor(237, 243, 255);
-    pdf.roundedRect(left, y - 5, 174, 13, 2, 2, "F");
-    pdf.setTextColor(46, 111, 242);
+    pdf.text(`Project: ${project.name || "-"}`, left, y + 6);
+    pdf.text(`Sales person: ${project.contactPerson || "-"}`, left, y + 12);
     pdf.setFont("helvetica", "bold");
-    pdf.text("TOTAL AMOUNT", left + 5, y + 3);
-    pdf.text(money(String(total), currency), 155, y + 3);
+    pdf.text(project.paymentMethod || "-", 120, y);
+    pdf.setFont("helvetica", "normal");
+    pdf.text(`Collection: ${project.collectionWay || "-"}`, 120, y + 6);
+    pdf.text(`Commission platform: ${project.commissionPlatform || "-"}`, 120, y + 12);
+    pdf.text(`Status: ${paymentStatus}`, 120, y + 18);
+    pdf.text(`Delivery date: ${deliveryDate}`, 120, y + 24);
+    if (project.paymentMethod === "Cash")
+      pdf.text(`Received by: ${project.cashReceivedBy || "-"}`, 120, y + 30);
+    y += project.paymentMethod === "Cash" ? 42 : 36;
+    pdf.setDrawColor(225, 230, 236);
+    pdf.line(left, y - 3, right, y - 3);
+    drawTableHeader();
+
+    let tableFontSize = detailFontSize;
+    const tableBottom = 197;
+    const measureRows = () =>
+      items.map((item) => {
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(tableFontSize);
+        const lines = pdf.splitTextToSize(item.work || project.name || "Project work", 116);
+        return {
+          lines,
+          height: Math.max(9, lines.length * (tableFontSize * 0.46) + 4),
+        };
+      });
+    let measuredRows = measureRows();
+    while (
+      measuredRows.reduce((height, row) => height + row.height, 0) >
+        tableBottom - y &&
+      tableFontSize > 6
+    ) {
+      tableFontSize = Math.max(6, tableFontSize - 0.5);
+      measuredRows = measureRows();
+    }
+
+    items.forEach((item, index) => {
+      const row = measuredRows[index];
+      if (y + row.height > tableBottom) {
+        pdf.addPage("a4", "portrait");
+        drawHeader(true);
+        y = 54;
+        pdf.setTextColor(39, 46, 54);
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8);
+        pdf.text(`Project: ${project.name}`, left, y);
+        y += 8;
+        drawTableHeader();
+      }
+      if (index % 2 === 0) {
+        pdf.setFillColor(247, 248, 249);
+        pdf.rect(left, y, right - left, row.height, "F");
+      }
+      pdf.setTextColor(88, 98, 108);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(tableFontSize);
+      pdf.text(deliveryDate, left + 4, y + 5);
+      pdf.text(row.lines, left + 34, y + 5);
+      pdf.setTextColor(39, 46, 54);
+      pdf.setFont("helvetica", "bold");
+      pdf.text(money(item.amount, currency), right - 4, y + 5, {
+        align: "right",
+      });
+      pdf.setDrawColor(235, 237, 239);
+      pdf.line(left, y + row.height, right, y + row.height);
+      y += row.height;
+    });
+
+    const details = [
+      project.description,
+      `${project.projectType} / ${project.technologyType}`,
+      technologies.length ? `Technology: ${technologies.join(", ")}` : "",
+    ].filter(Boolean);
+    const detailLines = details.flatMap((detail) =>
+      pdf.splitTextToSize(detail, 86),
+    );
+    const summaryHeight = Math.max(54, detailLines.length * 3.5 + 44);
+    if (y + summaryHeight > 284) {
+      pdf.addPage("a4", "portrait");
+      drawHeader(true);
+      y = 54;
+    }
+    y += 8;
+    pdf.setTextColor(39, 46, 54);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(9);
+    pdf.text("PROJECT DETAILS", left, y);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(Math.max(7, tableFontSize));
+    pdf.setTextColor(88, 98, 108);
+    pdf.text(detailLines, left, y + 7);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(8);
+    pdf.setTextColor(39, 46, 54);
+    pdf.text("Thank you for your business", left, Math.min(282, y + 34));
+
+    let summaryY = y;
+    const summaryLine = (label: string, value: string) => {
+      summaryY += 6;
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+      pdf.setTextColor(88, 98, 108);
+      pdf.text(label, 123, summaryY);
+      pdf.setFont("helvetica", "bold");
+      pdf.setTextColor(39, 46, 54);
+      pdf.text(value, right, summaryY, { align: "right" });
+    };
+    summaryLine("Subtotal", money(String(subtotal), currency));
+    summaryLine("Platform commission", `- ${money(String(commission), currency)}`);
+    summaryLine("Sales commission", `- ${money(String(salesPersonCommission), currency)}`);
+    summaryLine("Discount", `- ${money(project.discount, currency)}`);
+    summaryLine("Pay amount", money(String(payable), currency));
+    summaryLine("Due amount", money(String(due), currency));
+    summaryLine("Payment status", paymentStatus);
+    pdf.setFillColor(229, 145, 18);
+    pdf.roundedRect(120, summaryY + 5, right - 120, 13, 2, 2, "F");
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(9);
+    pdf.text("TOTAL AMOUNT", 124, summaryY + 13);
+    pdf.text(money(String(total), currency), right - 4, summaryY + 13, {
+      align: "right",
+    });
     pdf.save(`${project.invoiceNumber}.pdf`);
   }
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-[#18232f]/45 p-4"
+      className="invoice-print-root"
       role="dialog"
       aria-modal="true"
+      aria-label={`Invoice ${project.invoiceNumber}`}
     >
-      <article className="max-h-[92vh] w-full max-w-[780px] overflow-y-auto rounded-xl bg-white shadow-2xl">
-        <header className="flex items-start justify-between border-b border-[#e6ebf1] px-7 py-6 max-md:px-4">
-          <div>
-            <p className="font-sans text-xl font-bold tracking-[-0.5px] text-[#18232f]">
-              Focura
-            </p>
-            <p className="mt-1 text-[11px] text-[#687582]">Dhaka, Bangladesh</p>
-            <p className="text-[11px] text-[#687582]">
-              hello@focura.com · +880 1XXX-XXXXXX
-            </p>
-          </div>
-          <div className="flex items-start gap-4">
-            <div className="text-right">
-              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#2e6ff2]">
-                Invoice
-              </p>
-              <h2 className="mt-1 font-sans text-xl font-bold text-[#18232f]">
-                {project.invoiceNumber}
-              </h2>
-              <p className="mt-1 text-xs text-[#89939f]">Project invoice</p>
+      <div className="invoice-toolbar">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md bg-white px-4 py-2 text-xs font-semibold text-[#344352] shadow"
+        >
+          Close
+        </button>
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="rounded-md bg-white px-4 py-2 text-xs font-semibold text-[#344352] shadow"
+        >
+          Print invoice
+        </button>
+        <button
+          type="button"
+          onClick={downloadInvoice}
+          className="rounded-md bg-[#e59112] px-4 py-2 text-xs font-semibold text-white shadow"
+        >
+          Download PDF
+        </button>
+      </div>
+      <article className="invoice-page flex shrink-0 flex-col bg-white font-sans text-[#26333d] shadow-2xl">
+        <header className="relative h-[155px] shrink-0 overflow-hidden bg-[#272e36] px-10 py-8 text-white max-sm:px-6">
+          <div
+            className="absolute right-0 top-0 h-5 w-[52%] bg-[#e59112]"
+            style={{ clipPath: "polygon(8% 0, 100% 0, 100% 100%, 0 100%)" }}
+          />
+          <div
+            className="absolute bottom-0 left-0 h-7 w-[38%] bg-[#e59112]"
+            style={{ clipPath: "polygon(0 0, 100% 0, 88% 100%, 0 100%)" }}
+          />
+          <div className="relative z-10 flex h-full items-center justify-between gap-5">
+            <div className="flex items-center gap-3">
+              <span className="grid size-11 place-items-center rounded-md bg-[#e59112] text-2xl font-bold text-white">
+                F
+              </span>
+              <div>
+                <p className="text-lg font-bold tracking-[0.04em]">DEV CLUSTER</p>
+                <p className="text-[8px] font-semibold tracking-[0.12em] text-white/70">
+                  PROJECT MANAGEMENT
+                </p>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="grid size-8 place-items-center rounded-lg bg-[#f3f5f7] text-lg text-[#687582]"
-              aria-label="Close invoice"
-            >
-              ×
-            </button>
+            <div className="text-right">
+              <p className="text-3xl font-extrabold text-[#e59112] max-sm:text-2xl">
+                INVOICE
+              </p>
+              <p className="mt-1 text-[9px] text-white/80">
+                Invoice Number: {project.invoiceNumber}
+              </p>
+              <p className="text-[9px] text-white/80">
+                Invoice Date: {invoiceDate}
+              </p>
+            </div>
           </div>
         </header>
-        <div className="grid gap-5 p-7 max-md:p-4">
-          <div className="grid grid-cols-3 gap-4 rounded-lg bg-[#f8fafb] p-4 max-md:grid-cols-1">
-            <InvoiceValue label="Project name" value={project.name} />
-            <InvoiceValue label="Client name" value={project.clientName} />
-            <InvoiceValue label="Sales person" value={project.contactPerson} />
-          </div>
-          <InvoiceSection title="General">
-            <InvoiceValue
-              label="Description"
-              value={project.description || "-"}
-            />
-            <InvoiceValue label="Project type" value={project.projectType} />
-            <InvoiceValue
-              label="Project Type"
-              value={project.technologyType}
-            />
-          </InvoiceSection>
-          <InvoiceSection title="Technology">
-            <InvoiceValue
-              label="Technologies"
-              value={technologies.join(", ") || "-"}
-            />
-          </InvoiceSection>
-          <section>
-            <h3 className="mb-3 font-sans text-sm font-bold text-[#26333d]">
-              Sales Info
-            </h3>
-            <div className="grid grid-cols-3 gap-3 rounded-lg border border-[#e6ebf1] p-4 max-md:grid-cols-1">
-              <InvoiceValue label="Collection" value={project.collectionWay} />
-              <InvoiceValue
-                label="Commission platform"
-                value={project.commissionPlatform}
-              />
-              <InvoiceValue
-                label="Payment method"
-                value={project.paymentMethod ?? "-"}
-              />
+
+        <div className="flex min-h-0 flex-1 flex-col px-10 py-7 max-sm:px-6 max-sm:py-5">
+          <section className="grid grid-cols-2 gap-8 border-b border-[#e6ebf1] pb-5 max-sm:gap-4">
+            <div className="min-w-0">
+              <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-[#e59112]">
+                Invoice to
+              </p>
+              <h2 className="mt-1 truncate text-lg font-bold text-[#272e36]">
+                {project.clientName || "-"}
+              </h2>
+              <p className="mt-1 text-[10px] text-[#687582]">
+                Project: {project.name || "-"}
+              </p>
+              <p className="text-[10px] text-[#687582]">
+                Sales person: {project.contactPerson || "-"}
+              </p>
+            </div>
+            <div className="justify-self-end text-left text-[10px] max-sm:justify-self-start">
+              <p className="text-[11px] font-bold text-[#e59112]">
+                Payment Details
+              </p>
+              <p className="mt-1">
+                <strong>Method:</strong> {project.paymentMethod || "-"}
+              </p>
               {project.paymentMethod === "Cash" && (
-                <InvoiceValue
-                  label="Cash received by"
-                  value={project.cashReceivedBy ?? "-"}
-                />
+                <p>
+                  <strong>Received by:</strong> {project.cashReceivedBy || "-"}
+                </p>
               )}
+              <p>
+                <strong>Collection:</strong> {project.collectionWay || "-"}
+              </p>
+              <p>
+                <strong>Commission platform:</strong> {project.commissionPlatform || "-"}
+              </p>
+              <p>
+                <strong>Delivery date:</strong> {deliveryDate}
+              </p>
+              <p>
+                <strong>Status:</strong> {paymentStatus}
+              </p>
             </div>
           </section>
-          <InvoiceSection title="Accounts">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-[#e6ebf1] text-[10px] uppercase text-[#a2abb5]">
-                    <th className="pb-2">Work / service</th>
-                    <th className="pb-2 text-right">Amount</th>
+
+          <section className="mt-5 min-h-0">
+            <table className="w-full table-fixed border-collapse text-left">
+              <colgroup>
+                <col className="w-[22%]" />
+                <col className="w-[58%]" />
+                <col className="w-[20%]" />
+              </colgroup>
+              <thead>
+                <tr className="bg-[#e59112] text-[9px] font-bold uppercase text-white">
+                  <th className="px-3 py-3">Date</th>
+                  <th className="px-3 py-3">Project details</th>
+                  <th className="px-3 py-3 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody
+                style={{
+                  fontSize: `${detailFontSize}px`,
+                  lineHeight: Math.max(1.05, 1.3 - (10 - detailFontSize) * 0.035),
+                }}
+              >
+                {items.map((item, index) => (
+                  <tr
+                    key={item.id}
+                    className={index % 2 === 0 ? "bg-[#f5f6f7]" : "bg-white"}
+                  >
+                    <td className="px-3 py-3 align-top text-[#687582]">
+                      {deliveryDate}
+                    </td>
+                    <td className="break-words px-3 py-3 align-top text-[#344352]">
+                      <strong className="block font-semibold">
+                        {item.work || project.name || "Project work"}
+                      </strong>
+                      {index === 0 && project.description && (
+                        <span className="mt-1 block text-[#687582]">
+                          {project.description}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-right align-top font-semibold text-[#272e36]">
+                      {money(item.amount, currency)}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {items.map((item) => (
-                    <tr key={item.id} className="border-b border-[#f0f2f4]">
-                      <td className="py-2 text-[#687582]">
-                        {item.work || "Untitled item"}
-                      </td>
-                      <td className="py-2 text-right font-semibold text-[#26333d]">
-                        {money(item.amount, currency)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                ))}
+              </tbody>
+            </table>
+          </section>
+
+          <section className="mt-auto grid grid-cols-[1fr_0.95fr] gap-8 border-t border-[#e6ebf1] pt-6 max-sm:grid-cols-1 max-sm:gap-4">
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold text-[#272e36]">
+                Project details
+              </p>
+              <p
+                className="mt-1 break-words text-[#687582]"
+                style={{ fontSize: `${Math.max(8, detailFontSize)}px` }}
+              >
+                {project.projectType} / {project.technologyType}
+                {technologies.length ? ` · ${technologies.join(", ")}` : ""}
+              </p>
+              <p className="mt-5 text-xs font-bold text-[#272e36]">
+                Thank you for your business.
+              </p>
+              <p className="mt-1 text-[9px] text-[#89939f]">
+                Invoice for {project.name} · {project.clientName}
+              </p>
             </div>
-            <div className="mt-4 grid gap-2 text-xs">
+            <div className="space-y-2 text-[10px]">
               <InvoiceLine
-                label="Sub total"
+                label="Subtotal"
                 value={money(String(subtotal), currency)}
               />
               <InvoiceLine
-                label={`Commission (${project.commissionMode === "percent" ? `${project.commissionPercent}%` : "manual"})`}
+                label="Platform commission"
                 value={`- ${money(String(commission), currency)}`}
+              />
+              <InvoiceLine
+                label="Sales commission"
+                value={`- ${money(String(salesPersonCommission), currency)}`}
               />
               <InvoiceLine
                 label="Discount"
@@ -2422,61 +2644,17 @@ function InvoiceModal({
                 label="Due amount"
                 value={money(String(due), currency)}
               />
-              <InvoiceLine label="Payment status" value={paymentStatus} />
-              <div className="mt-2 flex justify-between rounded-lg bg-[#edf3ff] px-3 py-3 font-semibold text-[#2e6ff2]">
-                <span>Total amount</span>
-                <strong>{money(String(total), currency)}</strong>
+              <div className="flex justify-between rounded-md bg-[#e59112] px-4 py-3 text-xs font-bold text-white">
+                <span>{paymentStatus === "Paid" ? "Paid in full" : "Total due"}</span>
+                <strong>{money(String(paymentStatus === "Paid" ? total : due), currency)}</strong>
               </div>
             </div>
-          </InvoiceSection>
+          </section>
         </div>
-        <footer className="flex justify-end gap-3 border-t border-[#e6ebf1] px-7 py-4 max-md:px-4">
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="rounded-lg border border-[#e1e6ec] bg-white px-4 py-2.5 text-xs font-semibold text-[#687582]"
-          >
-            Print invoice
-          </button>
-          <button
-            type="button"
-            onClick={downloadInvoice}
-            className="rounded-lg bg-[#2e6ff2] px-4 py-2.5 text-xs font-semibold text-white"
-          >
-            Download invoice
-          </button>
+        <footer className="h-3 shrink-0 bg-[#272e36]">
+          <div className="h-full w-[38%] bg-[#e59112]" />
         </footer>
       </article>
-    </div>
-  );
-}
-
-function InvoiceSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section>
-      <h3 className="mb-3 font-sans text-sm font-bold text-[#26333d]">
-        {title}
-      </h3>
-      <div className="grid gap-3 rounded-lg border border-[#e6ebf1] p-4">
-        {children}
-      </div>
-    </section>
-  );
-}
-
-function InvoiceValue({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <span className="block text-[10px] font-semibold uppercase tracking-[0.05em] text-[#a2abb5]">
-        {label}
-      </span>
-      <strong className="mt-1 block text-xs text-[#26333d]">{value}</strong>
     </div>
   );
 }

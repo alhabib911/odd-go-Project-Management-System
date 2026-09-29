@@ -1,14 +1,5 @@
 import { createBrowserClient } from "@supabase/ssr";
 
-export type WorkspaceRole = "owner" | "admin" | "member";
-
-export type WorkspaceUser = {
-  id: string;
-  email: string;
-  fullName: string;
-  role: WorkspaceRole;
-};
-
 export const supabaseConfig = {
   url: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
   anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",

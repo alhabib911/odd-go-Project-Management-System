@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import WorkspaceSidebar, { Icon } from "@/components/workspace-sidebar";
 import ProfileMenu from "@/components/profile-menu";
+import { loadWorkspaceData } from "@/lib/workspace-data";
 
 type Project = {
   id: string;
@@ -65,12 +66,13 @@ export default function ReportsPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const saved = window.localStorage.getItem("focura-projects");
-      if (saved) setProjects(JSON.parse(saved) as Project[]);
-      const savedTasks = window.localStorage.getItem("focura-tasks");
-      if (savedTasks) {
-        setTasks(JSON.parse(savedTasks) as { project: string; status: string }[]);
-      }
+      void Promise.all([
+        loadWorkspaceData("dev-cluster-projects", fallbackProjects),
+        loadWorkspaceData<{ project: string; status: string }[]>("dev-cluster-tasks", []),
+      ]).then(([storedProjects, storedTasks]) => {
+        setProjects(storedProjects as Project[]);
+        setTasks(storedTasks);
+      });
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -172,7 +174,7 @@ export default function ReportsPage() {
         <header className="flex h-[72px] items-center justify-between border-b border-[#e9edf2] bg-white px-[47px] max-lg:px-7 max-md:h-[62px] max-md:px-[18px]">
           <div className="hidden items-center gap-[9px] font-sans text-lg font-bold max-md:flex">
             <span className="grid size-[27px] place-items-center rounded-lg bg-[#2e6ff2] text-white"><Icon name="spark" size={16} /></span>
-            focura
+            Dev Cluster
           </div>
           <div className="flex items-center gap-3 text-[#a5adb7] max-md:hidden"><span>Workspace</span><b>/</b><strong>Reports</strong></div>
           <div className="flex items-center gap-[17px]">

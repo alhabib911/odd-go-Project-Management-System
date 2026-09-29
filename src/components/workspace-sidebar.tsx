@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 export type IconName =
   | "grid"
@@ -13,16 +13,41 @@ export type IconName =
   | "bell"
   | "settings"
   | "more"
-  | "spark";
+  | "spark"
+  | "chevron";
 
-const navigation: { label: string; icon: IconName; href: string }[] = [
+type NavigationItem = {
+  label: string;
+  icon: IconName;
+  href: string;
+  children?: { label: string; icon: IconName; href: string }[];
+};
+
+const navigation: NavigationItem[] = [
   { label: "Role Management", icon: "settings", href: "/role-management" },
-  { label: "Projects", icon: "folder", href: "/projects" },
-  { label: "Tasks", icon: "check", href: "/tasks" },
+  {
+    label: "Project Management",
+    icon: "folder",
+    href: "/projects",
+    children: [
+      { label: "Projects", icon: "folder", href: "/projects" },
+      { label: "Tasks", icon: "check", href: "/tasks" },
+      { label: "Reports", icon: "chart", href: "/reports" },
+    ],
+  },
+  {
+    label: "Cluster Management",
+    icon: "grid",
+    href: "/leads",
+    children: [
+      { label: "Leads", icon: "users", href: "/leads" },
+      { label: "Blogs", icon: "chart", href: "/blogs" },
+      { label: "Quote Name", icon: "folder", href: "/quotes" },
+    ],
+  },
   { label: "Team", icon: "users", href: "/team" },
-  { label: "Reports", icon: "chart", href: "/reports" },
 ];
-const superadminEmail = "abdullahalhabib100@gmail.com";
+const superadminEmail = "devcluster24@gmail.com";
 
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -80,6 +105,7 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
         <path d="m19 16 .6 2.4L22 19l-2.4.6L19 22l-.6-2.4L16 19l2.4-.6z" />
       </>
     ),
+    chevron: <path d="m6 9 6 6 6-6" />,
   };
 
   return (
@@ -90,21 +116,85 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 }
 
 export default function WorkspaceSidebar({ active }: { active: string }) {
-  const allowedNavigation = navigation;
+  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(
+      navigation
+        .filter((item) => item.children?.some((child) => child.label === active))
+        .map((item) => [item.label, true]),
+    ),
+  );
 
   return (
     <aside className="flex w-[252px] shrink-0 flex-col border-r border-[#e9edf2] bg-white px-[14px] pb-[18px] pt-[25px] max-lg:w-[215px] max-md:w-[62px] max-md:px-2 max-md:py-[22px]">
       <Link href="/projects" className="flex items-center gap-[9px] px-[14px] font-sans text-[21px] font-bold tracking-[-0.7px] no-underline text-[#18232f]">
         <span className="grid size-[27px] place-items-center rounded-lg bg-[#2e6ff2] text-white"><Icon name="spark" size={17} /></span>
-        <span>focura</span>
+        <span>Dev Cluster</span>
       </Link>
       <nav className="mt-8">
-        {allowedNavigation?.map((item) => (
-          <Link key={item.label} href={item.href} className={active === item.label ? "flex w-full items-center gap-[13px] rounded-lg bg-[#edf3ff] px-[13px] py-2 text-left font-semibold text-[#2e6ff2] no-underline max-md:justify-center max-md:px-0 max-md:py-2" : "flex w-full items-center gap-[13px] rounded-lg bg-transparent px-[13px] py-2 text-left text-[#8b96a3] no-underline hover:bg-[#f5f7f9] hover:text-[#18232f] max-md:justify-center max-md:px-0 max-md:py-2"}>
-            <Icon name={item.icon} />
-            <span className="text-xs">{item.label}</span>
-          </Link>
-        ))}
+        {navigation.map((item) => {
+          const childIsActive = item.children?.some(
+            (child) => child.label === active,
+          );
+          const itemIsActive = active === item.label || childIsActive;
+          const linkClass = itemIsActive
+            ? "flex min-w-0 flex-1 items-center gap-[13px] rounded-lg bg-[#edf3ff] px-[13px] py-2 text-left font-semibold text-[#2e6ff2] no-underline max-md:justify-center max-md:px-0 max-md:py-2"
+            : "flex min-w-0 flex-1 items-center gap-[13px] rounded-lg bg-transparent px-[13px] py-2 text-left text-[#8b96a3] no-underline hover:bg-[#f5f7f9] hover:text-[#18232f] max-md:justify-center max-md:px-0 max-md:py-2";
+
+          return (
+            <div key={item.label}>
+              {item.children ? (
+                <button
+                  type="button"
+                  onClick={() => setExpandedMenus((menus) => ({
+                    ...menus,
+                    [item.label]: !menus[item.label],
+                  }))}
+                  aria-label={`${expandedMenus[item.label] ? "Collapse" : "Expand"} ${item.label} submenu`}
+                  aria-expanded={Boolean(expandedMenus[item.label])}
+                  className={`${linkClass} w-full justify-between`}
+                >
+                  <span className="flex min-w-0 items-center gap-[13px]">
+                    <Icon name={item.icon} />
+                    <span className="text-xs">{item.label}</span>
+                  </span>
+                  <span
+                    className={`ml-auto shrink-0 transition-transform ${expandedMenus[item.label] ? "rotate-180" : ""}`}
+                  >
+                    <Icon name="chevron" size={14} />
+                  </span>
+                </button>
+              ) : (
+                <Link
+                  href={item.href}
+                  aria-current={active === item.label ? "page" : undefined}
+                  className={linkClass}
+                >
+                  <Icon name={item.icon} />
+                  <span className="text-xs">{item.label}</span>
+                </Link>
+              )}
+              {item.children && expandedMenus[item.label] && (
+                <div className="ml-[26px] mt-1 space-y-1 border-l border-[#e9edf2] pl-2 max-md:ml-0 max-md:border-0 max-md:pl-0">
+                  {item.children.map((child) => (
+                    <Link
+                      key={child.label}
+                      href={child.href}
+                      aria-current={active === child.label ? "page" : undefined}
+                      className={
+                        active === child.label
+                          ? "flex items-center gap-2 rounded-md bg-[#edf3ff] px-3 py-2 text-[11px] font-semibold text-[#2e6ff2] no-underline max-md:justify-center max-md:px-0"
+                          : "flex items-center gap-2 rounded-md px-3 py-2 text-[11px] text-[#8b96a3] no-underline hover:bg-[#f5f7f9] hover:text-[#18232f] max-md:justify-center max-md:px-0"
+                      }
+                    >
+                      <Icon name={child.icon} size={15} />
+                      <span className="max-md:hidden">{child.label}</span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </nav>
     </aside>
   );

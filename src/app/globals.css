@@ -8,3 +8,75 @@ button:not(:disabled) {
 body {
 	font-family: Inter, Arial, sans-serif;
 }
+
+.invoice-print-root {
+	position: fixed;
+	inset: 0;
+	z-index: 60;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 20px;
+	overflow: auto;
+	background: rgb(24 35 47 / 45%);
+	padding: 24px;
+}
+
+.invoice-page {
+	width: 210mm;
+	height: 297mm;
+	max-width: calc(100vw - 32px);
+	min-height: 297mm;
+	overflow: hidden;
+}
+
+@page {
+	size: A4 portrait;
+	margin: 0;
+}
+
+@media print {
+	html,
+	body {
+		width: 210mm;
+		min-height: 297mm;
+		margin: 0 !important;
+		background: white !important;
+	}
+
+	body * {
+		visibility: hidden !important;
+	}
+
+	.invoice-print-root,
+	.invoice-print-root * {
+		visibility: visible !important;
+	}
+
+	.invoice-print-root {
+		position: absolute !important;
+		inset: 0 !important;
+		display: block !important;
+		width: 210mm !important;
+		height: 297mm !important;
+		min-height: 297mm !important;
+		margin: 0 !important;
+		padding: 0 !important;
+		overflow: visible !important;
+		background: white !important;
+	}
+
+	.invoice-toolbar {
+		display: none !important;
+	}
+
+	.invoice-page {
+		width: 210mm !important;
+		max-width: none !important;
+		height: 297mm !important;
+		min-height: 297mm !important;
+		margin: 0 !important;
+		border-radius: 0 !important;
+		box-shadow: none !important;
+	}
+}

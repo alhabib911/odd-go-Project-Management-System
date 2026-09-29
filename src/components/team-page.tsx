@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import WorkspaceSidebar, { Icon } from "@/components/workspace-sidebar";
 import ProfileMenu from "@/components/profile-menu";
+import { loadWorkspaceData, saveWorkspaceData, type WorkspaceDataKey } from "@/lib/workspace-data";
 
 export type MemberStatus = "Active" | "Inactive";
 
@@ -57,7 +58,7 @@ const initialMembers: TeamMember[] = [
   {
     id: "1",
     name: "Jordan Davis",
-    email: "jordan@focura.dev",
+    email: "jordan@dev-cluster.dev",
     phone: "+880 1711-000111",
     role: "Backend Developer",
     teamName: "Engineering",
@@ -67,7 +68,7 @@ const initialMembers: TeamMember[] = [
   {
     id: "2",
     name: "Ava Morgan",
-    email: "ava@focura.dev",
+    email: "ava@dev-cluster.dev",
     phone: "+880 1722-000222",
     role: "UI/UX Designer",
     teamName: "Design",
@@ -77,7 +78,7 @@ const initialMembers: TeamMember[] = [
   {
     id: "3",
     name: "Riley Khan",
-    email: "riley@focura.dev",
+    email: "riley@dev-cluster.dev",
     phone: "+880 1733-000333",
     role: "Frontend Developer",
     teamName: "Engineering",
@@ -87,7 +88,7 @@ const initialMembers: TeamMember[] = [
   {
     id: "4",
     name: "Maya Chen",
-    email: "maya@focura.dev",
+    email: "maya@dev-cluster.dev",
     phone: "+880 1744-000444",
     role: "UI/UX Designer",
     teamName: "Design",
@@ -97,7 +98,7 @@ const initialMembers: TeamMember[] = [
   {
     id: "5",
     name: "Mina Park",
-    email: "mina@focura.dev",
+    email: "mina@dev-cluster.dev",
     phone: "+880 1755-000555",
     role: "Database Engineer",
     teamName: "Infra & Security",
@@ -107,7 +108,7 @@ const initialMembers: TeamMember[] = [
   {
     id: "6",
     name: "Noah Wilson",
-    email: "noah@focura.dev",
+    email: "noah@dev-cluster.dev",
     phone: "+880 1766-000666",
     role: "Full Stack Developer",
     teamName: "Engineering",
@@ -117,7 +118,7 @@ const initialMembers: TeamMember[] = [
   {
     id: "7",
     name: "Sam Lee",
-    email: "sam@focura.dev",
+    email: "sam@dev-cluster.dev",
     phone: "+880 1777-000777",
     role: "Sales Representative",
     teamName: "Sales & Growth",
@@ -171,7 +172,7 @@ function readRegisteredUsersFromProfiles(): RegisteredUser[] {
   let roleRequests: StoredRoleRequest[] = [];
   try {
     roleRequests = JSON.parse(
-      window.localStorage.getItem("focura-role-requests") ?? "[]",
+      window.localStorage.getItem("dev-cluster-role-requests") ?? "[]",
     ) as StoredRoleRequest[];
   } catch {
     roleRequests = [];
@@ -180,7 +181,7 @@ function readRegisteredUsersFromProfiles(): RegisteredUser[] {
   const registeredUsers: RegisteredUser[] = [];
   for (let index = 0; index < window.localStorage.length; index += 1) {
     const key = window.localStorage.key(index);
-    if (!key?.startsWith("focura-profile:")) continue;
+    if (!key?.startsWith("dev-cluster-profile:")) continue;
 
     try {
       const profile = JSON.parse(
@@ -230,13 +231,15 @@ function updateSavedProfileRole(email: string, role: string) {
   const normalizedEmail = email.toLowerCase();
   for (let index = 0; index < window.localStorage.length; index += 1) {
     const key = window.localStorage.key(index);
-    if (!key?.startsWith("focura-profile:")) continue;
+    if (!key?.startsWith("dev-cluster-profile:")) continue;
     try {
       const profile = JSON.parse(
         window.localStorage.getItem(key) ?? "null",
       ) as StoredProfile | null;
       if (profile?.email?.toLowerCase() === normalizedEmail) {
-        window.localStorage.setItem(key, JSON.stringify({ ...profile, role }));
+        const updated = { ...profile, role };
+        window.localStorage.setItem(key, JSON.stringify(updated));
+        void saveWorkspaceData(key as WorkspaceDataKey, updated);
       }
     } catch {
       continue;
@@ -248,16 +251,18 @@ function updateSavedProfileTeamName(email: string, teamName: string) {
   const normalizedEmail = email.toLowerCase();
   for (let index = 0; index < window.localStorage.length; index += 1) {
     const key = window.localStorage.key(index);
-    if (!key?.startsWith("focura-profile:")) continue;
+    if (!key?.startsWith("dev-cluster-profile:")) continue;
     try {
       const profile = JSON.parse(
         window.localStorage.getItem(key) ?? "null",
       ) as StoredProfile | null;
       if (profile?.email?.toLowerCase() === normalizedEmail) {
+        const updated = { ...profile, teamName };
         window.localStorage.setItem(
           key,
-          JSON.stringify({ ...profile, teamName }),
+          JSON.stringify(updated),
         );
+        void saveWorkspaceData(key as WorkspaceDataKey, updated);
       }
     } catch {
       continue;
@@ -298,74 +303,60 @@ export default function TeamPage() {
   const [teamFormError, setTeamFormError] = useState("");
 
   useEffect(() => {
-    const savedTeams = window.localStorage.getItem("focura-teams");
-    const savedMembers = window.localStorage.getItem("focura-team");
-    const savedActivity = window.localStorage.getItem("focura-team-activity");
-
     const timer = window.setTimeout(() => {
-      setRegisteredUsers(readRegisteredUsersFromProfiles());
-      if (savedTeams) {
-        try {
-          const parsed = JSON.parse(savedTeams) as TeamGroup[];
-          if (Array.isArray(parsed) && parsed.length) setTeams(parsed);
-        } catch {
-          // fallback
-        }
-      }
-      if (savedMembers) {
-        try {
-          const parsed = JSON.parse(savedMembers) as TeamMember[];
-          if (Array.isArray(parsed)) {
-            setMembers(
-              parsed.map((item) => ({
-                ...item,
-                phone: item.phone ?? "",
-                teamName: item.teamName ?? "Engineering",
-                status: item.status === "Active" ? "Active" : "Inactive",
-                skills: Array.isArray(item.skills) ? item.skills : [],
-              })),
-            );
-          }
-        } catch {
-          // fallback
-        }
-      }
-      if (savedActivity) {
-        try {
-          setActivityLogs(
-            JSON.parse(savedActivity) as Record<string, ActivityEvent[]>,
-          );
-        } catch {
-          // fallback
-        }
-      } else {
-        const storedMembers = savedMembers
-          ? (JSON.parse(savedMembers) as TeamMember[])
-          : initialMembers;
-        setActivityLogs(
-          Object.fromEntries(
-            storedMembers.map((member) => [
-              member.id,
-              [
-                {
-                  id: `created-${member.id}`,
-                  action: "Member added",
-                  detail: `${member.name} joined team ${member.teamName ?? "Engineering"} as ${member.role}`,
-                  profile: "Jordan Davis (Admin)",
-                  timestamp: new Date().toISOString(),
-                },
-              ],
-            ]),
+      void Promise.all([
+        loadWorkspaceData<TeamGroup[]>("dev-cluster-teams", initialTeams),
+        loadWorkspaceData<TeamMember[]>("dev-cluster-team", initialMembers),
+        loadWorkspaceData<Record<string, ActivityEvent[]> | null>("dev-cluster-team-activity", null),
+        loadWorkspaceData<StoredRoleRequest[]>("dev-cluster-role-requests", []),
+      ]).then(async ([savedTeams, savedMembers, savedActivity, roleRequests]) => {
+        const emails = new Set([
+          ...roleRequests.map((request) => request.email),
+          ...savedMembers.map((member) => member.email),
+        ]);
+        await Promise.all(
+          Array.from(emails, (email) =>
+            loadWorkspaceData<StoredProfile | null>(`dev-cluster-profile:${email}`, null),
           ),
         );
-      }
-      setHydrated(true);
+        setRegisteredUsers(readRegisteredUsersFromProfiles());
+        if (savedTeams.length) setTeams(savedTeams);
+        setMembers(
+          savedMembers.map((item) => ({
+            ...item,
+            phone: item.phone ?? "",
+            teamName: item.teamName ?? "Engineering",
+            status: item.status === "Active" ? "Active" : "Inactive",
+            skills: Array.isArray(item.skills) ? item.skills : [],
+          })),
+        );
+        if (savedActivity) setActivityLogs(savedActivity);
+        else {
+          setActivityLogs(
+            Object.fromEntries(
+              savedMembers.map((member) => [
+                member.id,
+                [
+                  {
+                    id: `created-${member.id}`,
+                    action: "Member added",
+                    detail: `${member.name} joined team ${member.teamName ?? "Engineering"} as ${member.role}`,
+                    profile: "Jordan Davis (Admin)",
+                    timestamp: new Date().toISOString(),
+                  },
+                ],
+              ]),
+            ),
+          );
+        }
+        setHydrated(true);
+      });
     }, 0);
     function refreshRegisteredUsers(event: StorageEvent) {
       if (
         event.key === null ||
-        event.key.startsWith("focura-profile:") ||
-        event.key === "focura-role-requests"
+        event.key.startsWith("dev-cluster-profile:") ||
+        event.key === "dev-cluster-role-requests"
       ) {
         setRegisteredUsers(readRegisteredUsersFromProfiles());
       }
@@ -379,22 +370,19 @@ export default function TeamPage() {
 
   useEffect(() => {
     if (hydrated) {
-      window.localStorage.setItem("focura-teams", JSON.stringify(teams));
+      void saveWorkspaceData("dev-cluster-teams", teams);
     }
   }, [hydrated, teams]);
 
   useEffect(() => {
     if (hydrated) {
-      window.localStorage.setItem("focura-team", JSON.stringify(members));
+      void saveWorkspaceData("dev-cluster-team", members);
     }
   }, [hydrated, members]);
 
   useEffect(() => {
     if (hydrated) {
-      window.localStorage.setItem(
-        "focura-team-activity",
-        JSON.stringify(activityLogs),
-      );
+      void saveWorkspaceData("dev-cluster-team-activity", activityLogs);
     }
   }, [activityLogs, hydrated]);
 
@@ -641,7 +629,7 @@ export default function TeamPage() {
             <span className="grid size-[27px] place-items-center rounded-lg bg-[#2e6ff2] text-white">
               <Icon name="spark" size={16} />
             </span>
-            focura
+            Dev Cluster
           </div>
           <div className="flex items-center gap-[9px] text-[#a5adb7] max-md:hidden">
             <span>Workspace</span>
@@ -1413,7 +1401,7 @@ function MemberModal({
                 className={inputClass}
                 value={form.email}
                 onChange={(e) => updateField("email", e.target.value)}
-                placeholder="e.g. jordan@focura.dev"
+                placeholder="e.g. jordan@dev-cluster.dev"
               />
             </label>
           </div>

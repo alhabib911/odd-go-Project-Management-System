@@ -3,8 +3,8 @@ import "./globals.css";
 import AccessGate from "@/components/access-gate";
 
 export const metadata: Metadata = {
-  title: "Odd-Go | Project management and productivity",
-  description: "Plan better, work smarter, and achieve more with Odd-Go.",
+  title: "Dev Cluster | Project management and productivity",
+  description: "Plan better, work smarter, and achieve more with Dev Cluster.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

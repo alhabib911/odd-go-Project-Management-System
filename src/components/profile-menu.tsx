@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
+import { loadWorkspaceData, type WorkspaceDataKey } from "@/lib/workspace-data";
 
 export type ProfileData = {
   name: string;
@@ -18,7 +19,7 @@ export type ProfileData = {
 
 export const defaultProfile: ProfileData = {
   name: "Jordan Davis",
-  email: "jordan@focura.dev",
+  email: "jordan@dev-cluster.dev",
   phone: "+880 1711-000111",
   role: "",
   teamName: "Engineering",
@@ -33,12 +34,15 @@ export default function ProfileMenu() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const stored = window.localStorage.getItem("focura-profile");
-      const currentUser = JSON.parse(window.localStorage.getItem("focura-current-user") ?? "null") as { email?: string } | null;
-      const profileKey = currentUser?.email ? `focura-profile:${currentUser.email}` : "focura-profile";
-      const userProfile = window.localStorage.getItem(profileKey);
-      const parsed = userProfile ?? stored;
-      if (parsed) setProfile({ ...defaultProfile, ...(JSON.parse(parsed) as Partial<ProfileData>) });
+      const currentUser = JSON.parse(window.localStorage.getItem("dev-cluster-current-user") ?? "null") as { email?: string } | null;
+      const profileKey: WorkspaceDataKey = currentUser?.email ? `dev-cluster-profile:${currentUser.email}` : "dev-cluster-profile";
+      void Promise.all([
+        loadWorkspaceData<Partial<ProfileData> | null>(profileKey, null),
+        loadWorkspaceData<Partial<ProfileData> | null>("dev-cluster-profile", null),
+      ]).then(([userProfile, stored]) => {
+        const parsed = userProfile ?? stored;
+        if (parsed) setProfile({ ...defaultProfile, ...parsed });
+      });
     }, 0);
     function close(event: MouseEvent) {
       if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
@@ -53,8 +57,8 @@ export default function ProfileMenu() {
   async function logout() {
     const supabase = createSupabaseBrowserClient();
     if (supabase) await supabase.auth.signOut();
-    window.localStorage.removeItem("focura-authenticated");
-    window.localStorage.removeItem("focura-current-user");
+    window.localStorage.removeItem("dev-cluster-authenticated");
+    window.localStorage.removeItem("dev-cluster-current-user");
     router.push("/login");
   }
 
