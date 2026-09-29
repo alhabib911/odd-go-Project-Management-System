@@ -141,6 +141,7 @@ export default function StarterGuidePage({
   const [viewingCard, setViewingCard] = useState<GuideCard | null>(null);
   const [activityCard, setActivityCard] = useState<GuideCard | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [formError, setFormError] = useState("");
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "All">("All");
   const [guidePage, setGuidePage] = useState(1);
   const [, refreshCountdown] = useState(0);
@@ -157,13 +158,23 @@ export default function StarterGuidePage({
       const match = savedProjects.find(
         (item) => item.id === decodedId || item.name === decodedId,
       );
-      const task = savedTasks.find(
+      const ownerId = match?.id ?? decodedId;
+      const matchingTasks = savedTasks.filter(
         (item) =>
+          item.projectId === ownerId ||
           item.projectId === decodedId ||
           item.project === decodedId ||
           item.project === match?.name,
       );
-      setProjectId(decodedId);
+      const task = matchingTasks[0];
+      const uniqueCards = Array.from(
+        new Map(
+          matchingTasks
+            .flatMap((item) => item.guideCards ?? [])
+            .map((card) => [card.id, card]),
+        ).values(),
+      );
+      setProjectId(ownerId);
       setProject(
         match ??
           (task
@@ -175,7 +186,7 @@ export default function StarterGuidePage({
               }
             : null),
       );
-      setCards(task?.guideCards ?? []);
+      setCards(uniqueCards);
       setNotFound(!match && !task);
     });
   }, [params]);
@@ -195,13 +206,48 @@ export default function StarterGuidePage({
   const currentGuidePage = Math.min(guidePage, Math.max(guidePageCount, 1));
   const paginatedCards = filteredCards.slice((currentGuidePage - 1) * 8, currentGuidePage * 8);
 
+  function persistGuideCards(
+    tasks: Task[],
+    nextCards: GuideCard[],
+    taskData?: Partial<Omit<Task, "id">>,
+  ) {
+    const ownerId = projectId || project?.id || project?.name || "";
+    const belongsToProject = (task: Task) =>
+      task.projectId === ownerId || task.project === project?.name;
+    const ownerIndex = tasks.findIndex(belongsToProject);
+    if (ownerIndex === -1) {
+      if (!taskData) return tasks;
+      return [
+        { ...taskData, id: crypto.randomUUID(), guideCards: nextCards },
+        ...tasks,
+      ];
+    }
+    return tasks.map((task, index) => {
+      if (!belongsToProject(task)) return task;
+      if (index === ownerIndex)
+        return { ...task, ...taskData, guideCards: nextCards };
+      const remainingTask = { ...task };
+      delete remainingTask.guideCards;
+      return remainingTask;
+    });
+  }
+
   function addTask(
     event: FormEvent<HTMLFormElement>,
     form: TaskForm,
     comments: Comment[],
   ) {
     event.preventDefault();
-    if (!form.taskName.trim() || !projectId) return;
+    const ownerId = projectId || project?.id || project?.name || "";
+    if (!form.taskName.trim()) {
+      setFormError("Task name is required.");
+      return;
+    }
+    if (!ownerId) {
+      setFormError("This guide is not connected to a project yet.");
+      return;
+    }
+    setFormError("");
     const timestamp = new Date().toLocaleString([], {
       dateStyle: "medium",
       timeStyle: "short",
@@ -243,7 +289,7 @@ export default function StarterGuidePage({
       timestamp,
     };
     const taskData: Omit<Task, "id"> = {
-      projectId,
+      projectId: ownerId,
       project: project?.name ?? "",
       taskName: form.taskName.trim(),
       title: form.taskName.trim(),
@@ -254,8 +300,6 @@ export default function StarterGuidePage({
       priority: form.priority,
       priorityColor: form.priorityColor,
       attachment: form.attachment,
-      attachmentData: form.attachmentData,
-      attachments: form.attachments,
       status: form.status,
       comments,
       activity: [activity],
@@ -263,43 +307,43 @@ export default function StarterGuidePage({
     const tasks = JSON.parse(
       window.localStorage.getItem("focura-tasks") ?? "[]",
     ) as Task[];
-    const belongsToProject = (task: Task) =>
-      task.projectId === projectId || task.project === project?.name;
     if (editingCard) {
       const nextCards = cards.map((item) =>
         item.id === editingCard.id ? card : item,
       );
-      window.localStorage.setItem(
-        "focura-tasks",
-        JSON.stringify(
-          tasks.map((task) =>
-            belongsToProject(task)
-              ? { ...task, ...taskData, guideCards: nextCards }
-              : task,
-          ),
-        ),
-      );
+      try {
+        window.localStorage.setItem(
+          "focura-tasks",
+          JSON.stringify(persistGuideCards(tasks, nextCards, taskData)),
+        );
+      } catch (error) {
+        setFormError(
+          error instanceof DOMException && error.name === "QuotaExceededError"
+            ? "Browser storage is full. Remove large attachments or old tasks, then try again."
+            : "Unable to save this guide card. Please try again.",
+        );
+        return;
+      }
       setCards(nextCards);
       setEditingCard(null);
       setIsOpen(false);
       return;
     }
-    const nextTasks = tasks.some(belongsToProject)
-      ? tasks.map((task) =>
-          belongsToProject(task)
-            ? {
-                ...task,
-                ...taskData,
-                guideCards: [...(task.guideCards ?? []), card],
-              }
-            : task,
-        )
-      : [
-          { ...taskData, id: crypto.randomUUID(), guideCards: [card] },
-          ...tasks,
-        ];
-    window.localStorage.setItem("focura-tasks", JSON.stringify(nextTasks));
-    setCards((current) => [...current, card]);
+    const nextCards = [...cards, card];
+    try {
+      window.localStorage.setItem(
+        "focura-tasks",
+        JSON.stringify(persistGuideCards(tasks, nextCards, taskData)),
+      );
+    } catch (error) {
+      setFormError(
+        error instanceof DOMException && error.name === "QuotaExceededError"
+          ? "Browser storage is full. Remove large attachments or old tasks, then try again."
+          : "Unable to save this guide card. Please try again.",
+      );
+      return;
+    }
+    setCards(nextCards);
     setIsOpen(false);
   }
 
@@ -308,15 +352,9 @@ export default function StarterGuidePage({
     const tasks = JSON.parse(
       window.localStorage.getItem("focura-tasks") ?? "[]",
     ) as Task[];
-    const belongsToProject = (task: Task) =>
-      task.projectId === projectId || task.project === project?.name;
     window.localStorage.setItem(
       "focura-tasks",
-      JSON.stringify(
-        tasks.map((task) =>
-          belongsToProject(task) ? { ...task, guideCards: nextCards } : task,
-        ),
-      ),
+      JSON.stringify(persistGuideCards(tasks, nextCards)),
     );
     setCards(nextCards);
   }
@@ -346,17 +384,9 @@ export default function StarterGuidePage({
     const tasks = JSON.parse(
       window.localStorage.getItem("focura-tasks") ?? "[]",
     ) as Task[];
-    const belongsToProject = (task: Task) =>
-      task.projectId === projectId || task.project === project?.name;
     window.localStorage.setItem(
       "focura-tasks",
-      JSON.stringify(
-        tasks.map((task) =>
-          belongsToProject(task)
-            ? { ...task, status, guideCards: nextCards }
-            : task,
-        ),
-      ),
+      JSON.stringify(persistGuideCards(tasks, nextCards, { status })),
     );
     setCards(nextCards);
     setViewingCard((current) => {
@@ -449,7 +479,11 @@ export default function StarterGuidePage({
                     </span>
                     <button
                       type="button"
-                      onClick={() => setIsOpen(true)}
+                      onClick={() => {
+                        setFormError("");
+                        setEditingCard(null);
+                        setIsOpen(true);
+                      }}
                       className="inline-flex items-center gap-2 rounded-md bg-[#2e6ff2] px-3 py-2 text-xs font-semibold text-white hover:bg-[#1f5edd]"
                     >
                       <span className="text-base leading-none">+</span>Add guide
@@ -622,9 +656,11 @@ export default function StarterGuidePage({
         <TaskModal
           projectName={project?.name ?? ""}
           initialCard={editingCard}
+          formError={formError}
           onClose={() => {
             setIsOpen(false);
             setEditingCard(null);
+            setFormError("");
           }}
           onSubmit={addTask}
         />
@@ -941,11 +977,13 @@ function TaskViewModal({
 function TaskModal({
   projectName,
   initialCard,
+  formError,
   onClose,
   onSubmit,
 }: {
   projectName: string;
   initialCard: GuideCard | null;
+  formError: string;
   onClose: () => void;
   onSubmit: (
     event: FormEvent<HTMLFormElement>,
@@ -1100,6 +1138,7 @@ function TaskModal({
       aria-modal="true"
     >
       <form
+        noValidate
         onSubmit={(event) => onSubmit(event, form, comments)}
         className="mx-auto my-4 w-full max-w-[1040px] overflow-hidden rounded-xl bg-[#f8fafb] shadow-2xl"
       >
@@ -1130,7 +1169,6 @@ function TaskModal({
               <div className="grid grid-cols-[1fr_auto] items-end gap-4 max-sm:grid-cols-1">
                 <Field label="Task name">
                   <input
-                    required
                     className={inputClass}
                     value={form.taskName}
                     onChange={(event) => update("taskName", event.target.value)}
@@ -1477,6 +1515,11 @@ function TaskModal({
             </section>
           </aside>
         </div>
+        {formError && (
+          <p className="border-t border-[#f5d1ce] bg-[#fff7f6] px-6 py-3 text-xs font-medium text-[#d8665d]">
+            {formError}
+          </p>
+        )}
         <div className="flex justify-end gap-3 border-t border-[#e6ebf1] bg-white px-6 py-4">
           <button
             type="button"

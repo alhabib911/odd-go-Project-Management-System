@@ -16,7 +16,6 @@ export type IconName =
   | "spark";
 
 const navigation: { label: string; icon: IconName; href: string }[] = [
-  { label: "Overview", icon: "grid", href: "/dashboard" },
   { label: "Role Management", icon: "settings", href: "/role-management" },
   { label: "Projects", icon: "folder", href: "/projects" },
   { label: "Tasks", icon: "check", href: "/tasks" },
@@ -91,31 +90,11 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 }
 
 export default function WorkspaceSidebar({ active }: { active: string }) {
-  const [allowedNavigation, setAllowedNavigation] = useState<typeof navigation | null>(null);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const currentUser = JSON.parse(window.localStorage.getItem("focura-current-user") ?? "null") as { email?: string } | null;
-      const email = currentUser?.email?.toLowerCase();
-      if (!email) {
-        setAllowedNavigation([]);
-        return;
-      }
-      if (email === "jordan@focura.dev" || email === superadminEmail) {
-        setAllowedNavigation(navigation);
-        return;
-      }
-      const requests = JSON.parse(window.localStorage.getItem("focura-role-requests") ?? "[]") as Array<{ email: string; status: string; access?: string[] }>;
-      const approved = requests.find((request) => request.email.toLowerCase() === email && request.status === "Approved");
-      const access = new Set(approved?.access ?? []);
-      setAllowedNavigation(navigation.filter((item) => access.has(item.label)));
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
+  const allowedNavigation = navigation;
 
   return (
     <aside className="flex w-[252px] shrink-0 flex-col border-r border-[#e9edf2] bg-white px-[14px] pb-[18px] pt-[25px] max-lg:w-[215px] max-md:w-[62px] max-md:px-2 max-md:py-[22px]">
-      <Link href="/dashboard" className="flex items-center gap-[9px] px-[14px] font-sans text-[21px] font-bold tracking-[-0.7px] no-underline text-[#18232f]">
+      <Link href="/projects" className="flex items-center gap-[9px] px-[14px] font-sans text-[21px] font-bold tracking-[-0.7px] no-underline text-[#18232f]">
         <span className="grid size-[27px] place-items-center rounded-lg bg-[#2e6ff2] text-white"><Icon name="spark" size={17} /></span>
         <span>focura</span>
       </Link>

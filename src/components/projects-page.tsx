@@ -32,12 +32,21 @@ type Project = {
   bdtValue: string;
   paymentMethod: string;
   payableAmount: string;
+  cashReceivedBy?: string;
   status: "Ongoing" | "Review" | "Done" | "Cancel";
   deliveryDate: string;
 };
 
 type ProjectForm = Omit<Project, "id">;
 type AccountItem = { id: string; work: string; amount: string };
+type ClientRecord = {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  source: string;
+};
 type ActivityEvent = {
   id: string;
   action: string;
@@ -61,6 +70,12 @@ const collectionWays = [
   "Facebook",
   "Local Connection",
 ];
+const clientSourceOptions = [
+  "Fiverr",
+  "Upwork",
+  "LinkedIn",
+  "Facebook",
+];
 const commissionPlatforms = [
   "Fiverr",
   "Upwork",
@@ -70,14 +85,7 @@ const commissionPlatforms = [
 ];
 const salesPeople = ["Ava Morgan", "Riley Khan", "Jordan Davis"];
 const currencies = ["USD", "BDT", "EUR", "GBP"];
-const paymentMethods = [
-  "Fiverr",
-  "Upwork",
-  "Bank Payment - City Bank",
-  "Bank Payment - IFIC Bank",
-  "Mobile Banking - Bkash",
-  "Mobile Banking - Nagad",
-];
+const paymentMethods = ["Bkash", "Bank", "Cash"];
 const initialProjects: Project[] = [
   {
     id: "1",
@@ -213,14 +221,46 @@ const emptyForm = (): ProjectForm => ({
   accountItems: [{ id: crypto.randomUUID(), work: "", amount: "" }],
   currency: "USD",
   bdtValue: "",
-  paymentMethod: "Fiverr",
+  paymentMethod: "",
   payableAmount: "",
+  cashReceivedBy: "",
   status: "Ongoing",
   deliveryDate: "",
 });
 
 function money(value: string, currency = "USD") {
   return value ? `${currency} ${Number(value).toLocaleString()}` : "-";
+}
+
+function getProjectPaymentSummary(project: Project | ProjectForm) {
+  const accountItems = project.accountItems ?? [
+    { id: "legacy", work: project.name, amount: project.price },
+  ];
+  const subtotal = accountItems.reduce(
+    (sum, item) => sum + (Number(item.amount) || 0),
+    0,
+  );
+  const commission =
+    project.commissionMode === "percent"
+      ? subtotal * ((Number(project.commissionPercent) || 0) / 100)
+      : Number(project.commissionAmount) || 0;
+  const salesCommission =
+    project.salesCommissionMode === "percent"
+      ? subtotal * ((Number(project.salesCommission) || 0) / 100)
+      : Number(project.salesCommission) || 0;
+  const totalAmount = Math.max(
+    0,
+    subtotal - commission - salesCommission - (Number(project.discount) || 0),
+  );
+  const paidAmount = Math.max(0, Number(project.payableAmount) || 0);
+  const dueAmount = Math.max(0, totalAmount - paidAmount);
+
+  return {
+    totalAmount,
+    paidAmount,
+    dueAmount,
+    paymentStatus: dueAmount === 0 ? "Paid" : "Due",
+  };
 }
 
 function projectChanges(previous: Project, next: Project) {
@@ -230,7 +270,7 @@ function projectChanges(previous: Project, next: Project) {
     ["clientName", "Client name"],
     ["description", "Description"],
     ["projectType", "Project type"],
-    ["technologyType", "Technology type"],
+    ["technologyType", "Project Type"],
     ["technologies", "Technologies"],
     ["collectionWay", "Collection method"],
     ["contactPerson", "Sales person"],
@@ -239,7 +279,8 @@ function projectChanges(previous: Project, next: Project) {
     ["currency", "Currency"],
     ["bdtValue", "BDT value"],
     ["paymentMethod", "Payment method"],
-    ["payableAmount", "Payable amount"],
+    ["payableAmount", "Pay amount"],
+    ["cashReceivedBy", "Cash received by"],
     ["discount", "Discount"],
     ["commissionMode", "Commission mode"],
     ["commissionPercent", "Commission percentage"],
@@ -266,18 +307,166 @@ function formatActivityValue(value: unknown) {
   return String(value);
 }
 
+function ProjectTable({
+  projects,
+  emptyMessage,
+  onStatusChange,
+  onInvoice,
+  onEdit,
+  onDelete,
+  onActivity,
+}: {
+  projects: Project[];
+  emptyMessage: string;
+  onStatusChange: (id: string, status: Project["status"]) => void;
+  onInvoice: (project: Project) => void;
+  onEdit: (project: Project) => void;
+  onDelete: (id: string) => void;
+  onActivity: (project: Project) => void;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[980px]">
+        <thead>
+          <tr className="text-left">
+            {["Project", "Client", "Type", "Due amount", "Status", "Technology", "Invoice", "Action", "Activity log"].map((heading) => (
+              <th key={heading} className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                {heading}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {projects.length === 0 ? (
+            <tr>
+              <td colSpan={9} className="py-8 text-center text-xs text-[#89939f]">
+                {emptyMessage}
+              </td>
+            </tr>
+          ) : (
+            projects.map((project) => (
+              <tr className="border-t border-[#f0f2f4]" key={project.id}>
+                <td className="py-4">
+                  <div className="flex items-center gap-2.5">
+                    <span className="grid size-[29px] place-items-center rounded-lg bg-[#edf3ff] text-[9px] font-bold text-[#2e6ff2]">
+                      {project.name.slice(0, 2).toUpperCase()}
+                    </span>
+                    <strong className="block text-xs font-semibold text-[#26333d]">
+                      {project.name}
+                    </strong>
+                  </div>
+                </td>
+                <td className="py-4 text-xs text-[#89939f]">{project.clientName}</td>
+                <td>
+                  <span className="rounded-full bg-[#f4f6f8] px-2 py-1 text-[10px] text-[#687582]">
+                    {project.projectType}
+                  </span>
+                  <span className="mt-1 block text-[10px] text-[#a2abb5]">
+                    {project.technologyType}
+                  </span>
+                </td>
+                <td className="py-3 text-xs font-semibold text-[#26333d]">
+                  <span>{money(String(getProjectPaymentSummary(project).dueAmount), project.currency ?? "USD")}</span>
+                  <span className={`mt-1 block text-[9px] font-semibold ${getProjectPaymentSummary(project).paymentStatus === "Paid" ? "text-[#238d68]" : "text-[#d58b35]"}`}>
+                    {getProjectPaymentSummary(project).paymentStatus}
+                  </span>
+                </td>
+                <td>
+                  <select
+                    aria-label={`Change ${project.name} status`}
+                    value={project.status ?? "Ongoing"}
+                    onChange={(event) =>
+                      onStatusChange(project.id, event.target.value as Project["status"])
+                    }
+                    className="rounded-md border border-[#e4e9ef] bg-white px-2 py-1 text-[10px] font-semibold text-[#26333d] outline-none focus:border-[#2e6ff2]"
+                  >
+                    <option>Ongoing</option>
+                    <option>Review</option>
+                    <option>Done</option>
+                    <option>Cancel</option>
+                  </select>
+                </td>
+                <td className="max-w-[190px] text-[10px] text-[#89939f]">
+                  {categories
+                    .flatMap((category) => project.technologies[category])
+                    .join(", ")}
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    onClick={() => onInvoice(project)}
+                    className="rounded-md bg-[#f4f6f8] px-2 py-1 text-[10px] font-semibold text-[#2e6ff2] hover:bg-[#edf3ff]"
+                  >
+                    {project.invoiceNumber}
+                  </button>
+                </td>
+                <td>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onEdit(project)}
+                      className="rounded-md bg-[#edf3ff] px-2 py-1 text-[10px] font-semibold text-[#2e6ff2]"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDelete(project.id)}
+                      className="rounded-md bg-[#fff0ef] px-2 py-1 text-[10px] font-semibold text-[#d8665d]"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    onClick={() => onActivity(project)}
+                    className="rounded-md bg-[#f3f5f7] px-2 py-1 text-[10px] font-semibold text-[#687582] hover:bg-[#e9edf2]"
+                  >
+                    View
+                  </button>
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>(initialProjects);
+  const [clients, setClients] = useState<ClientRecord[]>([]);
   const [hydrated, setHydrated] = useState(false);
+  const [viewMode, setViewMode] = useState<"projects" | "clients">("projects");
   const [form, setForm] = useState<ProjectForm>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [clientForm, setClientForm] = useState<ClientRecord>({
+    id: "",
+    name: "",
+    phone: "",
+    email: "",
+    address: "",
+    source: "Fiverr",
+  });
+  const [editingClientId, setEditingClientId] = useState<string | null>(null);
+  const [clientSourceList, setClientSourceList] = useState<string[]>(clientSourceOptions);
   const [invoiceProject, setInvoiceProject] = useState<Project | null>(null);
   const [activityProject, setActivityProject] = useState<Project | null>(null);
-  const [projectPage, setProjectPage] = useState(1);
+  const [ongoingPage, setOngoingPage] = useState(1);
+  const [completedPage, setCompletedPage] = useState(1);
   const [activityLogs, setActivityLogs] = useState<
     Record<string, ActivityEvent[]>
   >({});
+  const [projectTypeOptions, setProjectTypeOptions] = useState<string[]>(projectTypes);
+  const [technologyTypeOptions, setTechnologyTypeOptions] = useState<string[]>(technologyTypes);
+  const [commissionPlatformOptions, setCommissionPlatformOptions] = useState<string[]>(commissionPlatforms);
+  const [clientNameOptions, setClientNameOptions] = useState<string[]>([]);
+  const [customClientName, setCustomClientName] = useState("");
   const [customType, setCustomType] = useState("");
   const [customTechnologyType, setCustomTechnologyType] = useState("");
   const [customCollection, setCustomCollection] = useState("");
@@ -297,6 +486,7 @@ export default function ProjectsPage() {
   useEffect(() => {
     const saved = window.localStorage.getItem("focura-projects");
     const savedActivity = window.localStorage.getItem("focura-activity");
+    const savedClients = window.localStorage.getItem("focura-clients");
     const timer = window.setTimeout(() => {
       if (saved) {
         const storedProjects = JSON.parse(saved) as Project[];
@@ -306,6 +496,21 @@ export default function ProjectsPage() {
             status: project.status ?? "Ongoing",
             deliveryDate: project.deliveryDate ?? "",
           })),
+        );
+      }
+      if (savedClients) {
+        const storedClients = JSON.parse(savedClients) as ClientRecord[];
+        setClients(storedClients);
+        setClientNameOptions(
+          Array.from(new Set([...storedClients.map((client) => client.name)])),
+        );
+        setClientSourceList(
+          Array.from(
+            new Set([
+              ...clientSourceOptions,
+              ...storedClients.map((client) => client.source),
+            ]),
+          ),
         );
       }
       if (savedActivity) {
@@ -342,6 +547,11 @@ export default function ProjectsPage() {
     if (hydrated)
       window.localStorage.setItem("focura-projects", JSON.stringify(projects));
   }, [hydrated, projects]);
+
+  useEffect(() => {
+    if (hydrated)
+      window.localStorage.setItem("focura-clients", JSON.stringify(clients));
+  }, [clients, hydrated]);
 
   useEffect(() => {
     if (hydrated)
@@ -433,6 +643,83 @@ export default function ProjectsPage() {
     setIsOpen(true);
   }
 
+  function openNewClient() {
+    setEditingClientId(null);
+    setClientForm({
+      id: "",
+      name: "",
+      phone: "",
+      email: "",
+      address: "",
+      source: clientSourceList[0] ?? "Fiverr",
+    });
+    setIsClientModalOpen(true);
+  }
+
+  useEffect(() => {
+    if (clients.length) {
+      setClientNameOptions(
+        Array.from(new Set([...clients.map((client) => client.name)])),
+      );
+    }
+  }, [clients]);
+
+  function openEditClient(client: ClientRecord) {
+    setEditingClientId(client.id);
+    setClientForm(client);
+    setIsClientModalOpen(true);
+  }
+
+  function saveClient(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedClient = {
+      ...clientForm,
+      name: clientForm.name.trim(),
+      phone: clientForm.phone.trim(),
+      email: clientForm.email.trim(),
+      address: clientForm.address.trim(),
+      source: clientForm.source.trim(),
+    };
+
+    if (!trimmedClient.name || !trimmedClient.source) {
+      return;
+    }
+
+    setClients((current) => {
+      const next = editingClientId
+        ? current.map((item) =>
+            item.id === editingClientId ? { ...trimmedClient, id: item.id } : item,
+          )
+        : [{ ...trimmedClient, id: crypto.randomUUID() }, ...current];
+
+      const nextSources = Array.from(
+        new Set([...clientSourceList, trimmedClient.source]),
+      );
+      setClientSourceList(nextSources);
+      setClientNameOptions(
+        Array.from(new Set([...next.map((client) => client.name)])),
+      );
+      return next;
+    });
+
+    setIsClientModalOpen(false);
+    setClientForm({
+      id: "",
+      name: "",
+      phone: "",
+      email: "",
+      address: "",
+      source: clientSourceList[0] ?? "Fiverr",
+    });
+    setEditingClientId(null);
+  }
+
+  function deleteClient(id: string) {
+    if (window.confirm("Delete this client?")) {
+      setClients((current) => current.filter((client) => client.id !== id));
+    }
+  }
+
   function openEdit(project: Project) {
     setEditingId(project.id);
     setForm({
@@ -490,13 +777,26 @@ export default function ProjectsPage() {
     setProjects((current) =>
       current.map((project) => (project.id === id ? { ...project, status } : project)),
     );
+    setOngoingPage(1);
+    setCompletedPage(1);
   }
 
-  const paginatedProjects = projects.slice(
-    (projectPage - 1) * 8,
-    projectPage * 8,
+  const ongoingProjects = projects.filter(
+    (project) => project.status === "Ongoing" || project.status === "Review",
   );
-  const projectPageCount = Math.ceil(projects.length / 8);
+  const completedProjects = projects.filter(
+    (project) => project.status === "Done" || project.status === "Cancel",
+  );
+  const paginatedProjects = ongoingProjects.slice(
+    (ongoingPage - 1) * 5,
+    ongoingPage * 5,
+  );
+  const paginatedCompletedProjects = completedProjects.slice(
+    (completedPage - 1) * 5,
+    completedPage * 5,
+  );
+  const projectPageCount = Math.ceil(ongoingProjects.length / 5);
+  const completedPageCount = Math.ceil(completedProjects.length / 5);
 
   function remove(id: string) {
     if (window.confirm("Delete this project?"))
@@ -526,9 +826,9 @@ export default function ProjectsPage() {
           <div className="flex items-center gap-[9px] text-[#a5adb7] max-md:hidden">
             <span>Workspace</span>
             <b>/</b>
-            <strong>Projects</strong>
+            <strong className="text-[#26333d]">Projects</strong>
           </div>
-          <div className="flex items-center gap-[17px]">
+          <div className="flex items-center gap-4">
             <button
               className="grid place-items-center bg-transparent text-[#89939f]"
               aria-label="Search"
@@ -557,157 +857,282 @@ export default function ProjectsPage() {
                 Plan, track, and deliver your team&apos;s most important work.
               </p>
             </div>
-            <button
-              onClick={openNew}
-              className="inline-flex shrink-0 items-center gap-2 rounded-[7px] bg-[#2e6ff2] px-4 py-[11px] text-[13px] font-semibold text-white shadow-[0_5px_12px_rgba(46,111,242,0.15)] hover:bg-[#1f5edd]"
-            >
-              <span className="text-base leading-none">+</span>Add new project
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={openNewClient}
+                className="inline-flex shrink-0 items-center gap-2 rounded-[7px] border border-[#dfe5eb] bg-white px-4 py-[11px] text-[13px] font-semibold text-[#2e6ff2] hover:border-[#2e6ff2]"
+              >
+                <span className="text-base leading-none">+</span>Add New Client
+              </button>
+              <button
+                onClick={openNew}
+                className="inline-flex shrink-0 items-center gap-2 rounded-[7px] bg-[#2e6ff2] px-4 py-[11px] text-[13px] font-semibold text-white shadow-[0_5px_12px_rgba(46,111,242,0.15)] hover:bg-[#1f5edd]"
+              >
+                <span className="text-base leading-none">+</span>Add new project
+              </button>
+            </div>
           </div>
           <section className="overflow-hidden rounded-xl border border-[#e6ebf1] bg-white p-6 shadow-[0_12px_32px_rgba(30,55,80,0.04)] max-md:p-4">
-            <div className="mb-6 flex items-start justify-between">
-              <div>
-                <h2 className="font-sans text-base font-bold text-[#18232f]">
+            <div className="mb-6 flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 rounded-lg bg-[#f3f5f7] p-1">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("projects")}
+                  className={viewMode === "projects" ? "rounded-md bg-white px-3 py-1.5 text-[11px] font-semibold text-[#2e6ff2] shadow-sm" : "rounded-md px-3 py-1.5 text-[11px] font-semibold text-[#687582]"}
+                >
                   All projects
-                </h2>
-                <p className="mt-1 text-xs text-[#96a0ac]">
-                  Your team&apos;s active work
-                </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("clients")}
+                  className={viewMode === "clients" ? "rounded-md bg-white px-3 py-1.5 text-[11px] font-semibold text-[#2e6ff2] shadow-sm" : "rounded-md px-3 py-1.5 text-[11px] font-semibold text-[#687582]"}
+                >
+                  All Clients
+                </button>
               </div>
-              <span className="rounded-full bg-[#edf3ff] px-2.5 py-1 text-[10px] font-semibold text-[#2e6ff2]">
-                {projects.length} active
-              </span>
+              {viewMode === "projects" && (
+                <span className="rounded-full bg-[#edf3ff] px-2.5 py-1 text-[10px] font-semibold text-[#2e6ff2]">
+                  {ongoingProjects.length} ongoing
+                </span>
+              )}
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px]">
-                <thead>
-                  <tr className="text-left">
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Project
-                    </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Client
-                    </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Type
-                    </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Price
-                    </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Status
-                    </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Technology
-                    </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Invoice
-                    </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Action
-                    </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Activity log
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedProjects.map((project) => (
-                    <tr className="border-t border-[#f0f2f4]" key={project.id}>
-                      <td className="py-4">
-                        <div className="flex items-center gap-2.5">
-                          <span className="grid size-[29px] place-items-center rounded-lg bg-[#edf3ff] text-[9px] font-bold text-[#2e6ff2]">
-                            {project.name.slice(0, 2).toUpperCase()}
-                          </span>
-                          <div>
-                            <strong className="block text-xs font-semibold text-[#26333d]">
-                              {project.name}
-                            </strong>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-4 text-xs text-[#89939f]">
-                        {project.clientName}
-                      </td>
-                      <td>
-                        <span className="rounded-full bg-[#f4f6f8] px-2 py-1 text-[10px] text-[#687582]">
-                          {project.projectType}
-                        </span>
-                        <span className="mt-1 block text-[10px] text-[#a2abb5]">
-                          {project.technologyType}
-                        </span>
-                      </td>
-                      <td className="text-xs font-semibold text-[#26333d]">
-                        {money(project.price, project.currency ?? "USD")}
-                      </td>
-                      <td>
-                        <select
-                          aria-label={`Change ${project.name} status`}
-                          value={project.status ?? "Ongoing"}
-                          onChange={(event) =>
-                            updateProjectStatus(
-                              project.id,
-                              event.target.value as Project["status"],
-                            )
-                          }
-                          className="rounded-md border border-[#e4e9ef] bg-white px-2 py-1 text-[10px] font-semibold text-[#26333d] outline-none focus:border-[#2e6ff2]"
-                        >
-                          <option>Ongoing</option>
-                          <option>Review</option>
-                          <option>Done</option>
-                          <option>Cancel</option>
-                        </select>
-                      </td>
-                      <td className="max-w-[190px] text-[10px] text-[#89939f]">
-                        {categories
-                          .flatMap((category) => project.technologies[category])
-                          .join(", ")}
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          onClick={() => viewInvoice(project)}
-                          className="rounded-md bg-[#f4f6f8] px-2 py-1 text-[10px] font-semibold text-[#2e6ff2] hover:bg-[#edf3ff]"
-                        >
-                          {project.invoiceNumber}
-                        </button>
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => openEdit(project)}
-                            className="rounded-md bg-[#edf3ff] px-2 py-1 text-[10px] font-semibold text-[#2e6ff2]"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => remove(project.id)}
-                            className="rounded-md bg-[#fff0ef] px-2 py-1 text-[10px] font-semibold text-[#d8665d]"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          onClick={() => setActivityProject(project)}
-                          className="rounded-md bg-[#f3f5f7] px-2 py-1 text-[10px] font-semibold text-[#687582] hover:bg-[#e9edf2]"
-                        >
-                          View
-                        </button>
-                      </td>
+
+            {viewMode === "projects" ? (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[980px]">
+                    <thead>
+                      <tr className="text-left">
+                        <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                          Project
+                        </th>
+                        <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                          Client
+                        </th>
+                        <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                          Type
+                        </th>
+                        <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                          Due amount
+                        </th>
+                        <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                          Status
+                        </th>
+                        <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                          Technology
+                        </th>
+                        <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                          Invoice
+                        </th>
+                        <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                          Action
+                        </th>
+                        <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                          Activity log
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedProjects.map((project) => (
+                        <tr className="border-t border-[#f0f2f4]" key={project.id}>
+                          <td className="py-4">
+                            <div className="flex items-center gap-2.5">
+                              <span className="grid size-[29px] place-items-center rounded-lg bg-[#edf3ff] text-[9px] font-bold text-[#2e6ff2]">
+                                {project.name.slice(0, 2).toUpperCase()}
+                              </span>
+                              <div>
+                                <strong className="block text-xs font-semibold text-[#26333d]">
+                                  {project.name}
+                                </strong>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-4 text-xs text-[#89939f]">
+                            {project.clientName}
+                          </td>
+                          <td>
+                            <span className="rounded-full bg-[#f4f6f8] px-2 py-1 text-[10px] text-[#687582]">
+                              {project.projectType}
+                            </span>
+                            <span className="mt-1 block text-[10px] text-[#a2abb5]">
+                              {project.technologyType}
+                            </span>
+                          </td>
+                          <td className="py-3 text-xs font-semibold text-[#26333d]">
+                            <span>{money(String(getProjectPaymentSummary(project).dueAmount), project.currency ?? "USD")}</span>
+                            <span className={`mt-1 block text-[9px] font-semibold ${getProjectPaymentSummary(project).paymentStatus === "Paid" ? "text-[#238d68]" : "text-[#d58b35]"}`}>
+                              {getProjectPaymentSummary(project).paymentStatus}
+                            </span>
+                          </td>
+                          <td>
+                            <select
+                              aria-label={`Change ${project.name} status`}
+                              value={project.status ?? "Ongoing"}
+                              onChange={(event) =>
+                                updateProjectStatus(
+                                  project.id,
+                                  event.target.value as Project["status"],
+                                )
+                              }
+                              className="rounded-md border border-[#e4e9ef] bg-white px-2 py-1 text-[10px] font-semibold text-[#26333d] outline-none focus:border-[#2e6ff2]"
+                            >
+                              <option>Ongoing</option>
+                              <option>Review</option>
+                              <option>Done</option>
+                              <option>Cancel</option>
+                            </select>
+                          </td>
+                          <td className="max-w-[190px] text-[10px] text-[#89939f]">
+                            {categories
+                              .flatMap((category) => project.technologies[category])
+                              .join(", ")}
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => viewInvoice(project)}
+                              className="rounded-md bg-[#f4f6f8] px-2 py-1 text-[10px] font-semibold text-[#2e6ff2] hover:bg-[#edf3ff]"
+                            >
+                              {project.invoiceNumber}
+                            </button>
+                          </td>
+                          <td>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => openEdit(project)}
+                                className="rounded-md bg-[#edf3ff] px-2 py-1 text-[10px] font-semibold text-[#2e6ff2]"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => remove(project.id)}
+                                className="rounded-md bg-[#fff0ef] px-2 py-1 text-[10px] font-semibold text-[#d8665d]"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => setActivityProject(project)}
+                              className="rounded-md bg-[#f3f5f7] px-2 py-1 text-[10px] font-semibold text-[#687582] hover:bg-[#e9edf2]"
+                            >
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {projectPageCount > 1 && (
+                  <Pagination
+                    page={ongoingPage}
+                    pageCount={projectPageCount}
+                    onChange={setOngoingPage}
+                  />
+                )}
+                <div className="mt-10 border-t border-[#e6ebf1] pt-6">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-sm font-bold text-[#26333d]">
+                        Completed Projects
+                      </h2>
+                      <p className="mt-1 text-xs text-[#89939f]">
+                        Finished and cancelled projects
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-[#f3f5f7] px-2.5 py-1 text-[10px] font-semibold text-[#687582]">
+                      {completedProjects.length} completed
+                    </span>
+                  </div>
+                  <ProjectTable
+                    projects={paginatedCompletedProjects}
+                    emptyMessage="No completed projects yet."
+                    onStatusChange={updateProjectStatus}
+                    onInvoice={viewInvoice}
+                    onEdit={openEdit}
+                    onDelete={remove}
+                    onActivity={setActivityProject}
+                  />
+                  {completedPageCount > 1 && (
+                    <Pagination
+                      page={completedPage}
+                      pageCount={completedPageCount}
+                      onChange={setCompletedPage}
+                    />
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px]">
+                  <thead>
+                    <tr className="text-left">
+                      <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                        Client name
+                      </th>
+                      <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                        Phone
+                      </th>
+                      <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                        Email
+                      </th>
+                      <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                        Address
+                      </th>
+                      <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                        Source
+                      </th>
+                      <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+                        Actions
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {projectPageCount > 1 && (
-              <Pagination
-                page={projectPage}
-                pageCount={projectPageCount}
-                onChange={setProjectPage}
-              />
+                  </thead>
+                  <tbody>
+                    {clients.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-xs text-[#89939f]">
+                          No clients yet. Add your first client to begin.
+                        </td>
+                      </tr>
+                    ) : (
+                      clients.map((client) => (
+                        <tr key={client.id} className="border-t border-[#f0f2f4]">
+                          <td className="py-3 text-sm font-semibold text-[#26333d]">{client.name}</td>
+                          <td className="py-3 text-xs text-[#687582]">{client.phone || "—"}</td>
+                          <td className="py-3 text-xs text-[#687582]">{client.email || "—"}</td>
+                          <td className="py-3 text-xs text-[#687582]">{client.address || "—"}</td>
+                          <td className="py-3">
+                            <span className="rounded-full bg-[#edf3ff] px-2 py-1 text-[10px] font-semibold text-[#2e6ff2]">
+                              {client.source}
+                            </span>
+                          </td>
+                          <td className="py-3">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => openEditClient(client)}
+                                className="rounded-md bg-[#edf3ff] px-2 py-1 text-[10px] font-semibold text-[#2e6ff2]"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteClient(client.id)}
+                                className="rounded-md bg-[#fff0ef] px-2 py-1 text-[10px] font-semibold text-[#d8665d]"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             )}
           </section>
         </div>
@@ -716,17 +1141,51 @@ export default function ProjectsPage() {
         <ProjectModal
           form={form}
           editing={Boolean(editingId)}
+          clientNameOptions={clientNameOptions}
+          projectTypeOptions={projectTypeOptions}
+          technologyTypeOptions={technologyTypeOptions}
+          commissionPlatformOptions={commissionPlatformOptions}
+          customClientName={customClientName}
           customType={customType}
           customTechnologyType={customTechnologyType}
           customCollection={customCollection}
           customPlatform={customPlatform}
           customTech={customTech}
           technologyOptions={technologyOptions}
+          setCustomClientName={setCustomClientName}
           setCustomType={setCustomType}
           setCustomTechnologyType={setCustomTechnologyType}
           setCustomCollection={setCustomCollection}
           setCustomPlatform={setCustomPlatform}
           setCustomTech={setCustomTech}
+          addProjectType={(value) => {
+            const next = value.trim();
+            if (!next) return;
+            setProjectTypeOptions((current) =>
+              current.includes(next) ? current : [...current, next],
+            );
+            updateField("projectType", next);
+            setCustomType("");
+          }}
+          addTechnologyType={(value) => {
+            const next = value.trim();
+            if (!next) return;
+            setTechnologyTypeOptions((current) =>
+              current.includes(next) ? current : [...current, next],
+            );
+            updateField("technologyType", next);
+            setCustomTechnologyType("");
+          }}
+          addCommissionPlatform={(value) => {
+            const next = value.trim();
+            if (!next) return;
+            setCommissionPlatformOptions((current) =>
+              current.includes(next) ? current : [...current, next],
+            );
+            updateField("commissionPlatform", next);
+            setCustomPlatform("");
+          }}
+          setClientName={(value) => updateField("clientName", value)}
           updateField={updateField}
           updateTechnology={updateTechnology}
           addTechnology={addTechnology}
@@ -735,6 +1194,29 @@ export default function ProjectsPage() {
           removeAccountItem={removeAccountItem}
           onSubmit={submit}
           onClose={() => setIsOpen(false)}
+        />
+      )}
+      {isClientModalOpen && (
+        <ClientModal
+          form={clientForm}
+          sourceOptions={clientSourceList}
+          editing={Boolean(editingClientId)}
+          onChange={(field, value) =>
+            setClientForm((current) => ({ ...current, [field]: value }))
+          }
+          onSourceAdd={(value) => {
+            const next = value.trim();
+            if (!next) return;
+            setClientSourceList((current) =>
+              current.includes(next) ? current : [...current, next],
+            );
+            setClientForm((current) => ({ ...current, source: next }));
+          }}
+          onSubmit={saveClient}
+          onClose={() => {
+            setIsClientModalOpen(false);
+            setEditingClientId(null);
+          }}
         />
       )}
       {invoiceProject && (
@@ -757,17 +1239,27 @@ export default function ProjectsPage() {
 function ProjectModal({
   form,
   editing,
+  clientNameOptions,
+  projectTypeOptions,
+  technologyTypeOptions,
+  commissionPlatformOptions,
+  customClientName,
   customType,
   customTechnologyType,
   customCollection,
   customPlatform,
   customTech,
   technologyOptions,
+  setCustomClientName,
   setCustomType,
   setCustomTechnologyType,
   setCustomCollection,
   setCustomPlatform,
   setCustomTech,
+  addProjectType,
+  addTechnologyType,
+  addCommissionPlatform,
+  setClientName,
   updateField,
   updateTechnology,
   addTechnology,
@@ -779,17 +1271,27 @@ function ProjectModal({
 }: {
   form: ProjectForm;
   editing: boolean;
+  clientNameOptions: string[];
+  projectTypeOptions: string[];
+  technologyTypeOptions: string[];
+  commissionPlatformOptions: string[];
+  customClientName: string;
   customType: string;
   customTechnologyType: string;
   customCollection: string;
   customPlatform: string;
   customTech: Record<TechnologyCategory, string>;
   technologyOptions: Record<TechnologyCategory, string[]>;
+  setCustomClientName: (value: string) => void;
   setCustomType: (value: string) => void;
   setCustomTechnologyType: (value: string) => void;
   setCustomCollection: (value: string) => void;
   setCustomPlatform: (value: string) => void;
   setCustomTech: (value: Record<TechnologyCategory, string>) => void;
+  addProjectType: (value: string) => void;
+  addTechnologyType: (value: string) => void;
+  addCommissionPlatform: (value: string) => void;
+  setClientName: (value: string) => void;
   updateField: (field: keyof ProjectForm, value: string) => void;
   updateTechnology: (category: TechnologyCategory, value: string) => void;
   addTechnology: (category: TechnologyCategory) => void;
@@ -807,12 +1309,29 @@ function ProjectModal({
     "mt-1 w-full rounded-md border border-[#e4e9ef] bg-white px-2.5 py-2 text-xs text-[#26333d] outline-none transition focus:border-[#2e6ff2] focus:ring-2 focus:ring-[#edf3ff]";
   const labelClass =
     "text-[10px] font-semibold uppercase tracking-[0.05em] text-[#7e8995]";
+  const [clientDropdownOpen, setClientDropdownOpen] = useState(false);
+  const [projectTypeDropdownOpen, setProjectTypeDropdownOpen] = useState(false);
+  const [technologyTypeDropdownOpen, setTechnologyTypeDropdownOpen] =
+    useState(false);
+  const [technologyDropdownOpen, setTechnologyDropdownOpen] = useState<
+    Record<TechnologyCategory, boolean>
+  >({ Frontend: false, CSS: false, Backend: false, Database: false });
+  const filteredClientNames = clientNameOptions.filter((name) =>
+    name.toLowerCase().includes(form.clientName.toLowerCase()),
+  );
+  const filteredProjectTypes = projectTypeOptions.filter((type) =>
+    type.toLowerCase().includes(form.projectType.toLowerCase()),
+  );
+  const filteredTechnologyTypes = technologyTypeOptions.filter((type) =>
+    type.toLowerCase().includes(form.technologyType.toLowerCase()),
+  );
   const selectValue = (
     field: keyof ProjectForm,
     value: string,
     custom: string,
     setCustom: (value: string) => void,
     options: string[],
+    onAdd: (value: string) => void,
   ) => (
     <>
       <select
@@ -824,8 +1343,11 @@ function ProjectModal({
         }
         onChange={(event) => {
           const next = event.target.value;
-          if (next === "__custom") setCustom("");
-          else updateField(field, next);
+          if (next === "__custom") {
+            setCustom("");
+            return;
+          }
+          updateField(field, next);
         }}
       >
         <option value="">Select one</option>
@@ -834,7 +1356,7 @@ function ProjectModal({
         ))}
         <option value="__custom">+ Add new</option>
       </select>
-      {(!options.includes(form[field] as string) || custom) && (
+      {(custom || !options.includes(form[field] as string)) && (
         <div className="mt-2 flex gap-2">
           <input
             className={inputClass.replace("mt-1 ", "")}
@@ -847,8 +1369,7 @@ function ProjectModal({
             className="rounded-lg bg-[#edf3ff] px-3 text-xs font-semibold text-[#2e6ff2]"
             onClick={() => {
               if (custom.trim()) {
-                updateField(field, custom.trim());
-                setCustom("");
+                onAdd(custom.trim());
               }
             }}
           >
@@ -858,25 +1379,8 @@ function ProjectModal({
       )}
     </>
   );
-  const subtotal = form.accountItems.reduce(
-    (total, item) => total + (Number(item.amount) || 0),
-    0,
-  );
-  const platformCommission =
-    form.commissionMode === "percent"
-      ? subtotal * ((Number(form.commissionPercent) || 0) / 100)
-      : Number(form.commissionAmount) || 0;
-  const salesPersonCommission =
-    form.salesCommissionMode === "percent"
-      ? subtotal * ((Number(form.salesCommission) || 0) / 100)
-      : Number(form.salesCommission) || 0;
-  const totalAmount = Math.max(
-    0,
-    subtotal -
-      platformCommission -
-      salesPersonCommission -
-      (Number(form.discount) || 0),
-  );
+  const { totalAmount, dueAmount, paymentStatus } =
+    getProjectPaymentSummary(form);
 
   return (
     <div
@@ -922,13 +1426,54 @@ function ProjectModal({
               value={form.name}
               onChange={(value) => updateField("name", value)}
             />
-            <Field
-              label="Client Name"
-              required
-              className="py-3 text-sm"
-              value={form.clientName}
-              onChange={(value) => updateField("clientName", value)}
-            />
+            <div>
+              <label className={labelClass}>Client Name</label>
+              <div className="relative">
+                <input
+                  className={`${inputClass} pr-9`}
+                  placeholder="Select or type a client name"
+                  value={form.clientName}
+                  onFocus={() => setClientDropdownOpen(true)}
+                  onBlur={() =>
+                    window.setTimeout(() => setClientDropdownOpen(false), 150)
+                  }
+                  onChange={(event) => {
+                    setClientName(event.target.value);
+                    setClientDropdownOpen(true);
+                  }}
+                  required
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 border-x-[4px] border-t-[5px] border-x-transparent border-t-[#8d99a6]">
+                </span>
+                {clientDropdownOpen && (
+                  <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-20 overflow-hidden rounded-lg border border-[#e1e7ee] bg-white p-1.5 shadow-[0_12px_30px_rgba(24,35,47,0.14)]">
+                    {filteredClientNames.length > 0 ? (
+                      filteredClientNames.map((name) => (
+                        <button
+                          key={name}
+                          type="button"
+                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-medium text-[#344352] transition hover:bg-[#f1f5ff] hover:text-[#2e6ff2]"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setClientName(name);
+                            setClientDropdownOpen(false);
+                          }}
+                        >
+                          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[#edf3ff] text-[10px] font-bold text-[#2e6ff2]">
+                            {name.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="truncate">{name}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-3 py-2.5 text-xs text-[#8d99a6]">
+                        No matching client
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
           <div>
             <label className={labelClass}>Project description</label>
@@ -944,23 +1489,103 @@ function ProjectModal({
           <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
             <div>
               <label className={labelClass}>Type of project</label>
-              {selectValue(
-                "projectType",
-                form.projectType,
-                customType,
-                setCustomType,
-                projectTypes,
-              )}
+              <div className="relative">
+                <input
+                  className={`${inputClass} pr-9`}
+                  placeholder="Select or type a project type"
+                  value={form.projectType}
+                  onFocus={() => setProjectTypeDropdownOpen(true)}
+                  onBlur={() =>
+                    window.setTimeout(
+                      () => setProjectTypeDropdownOpen(false),
+                      150,
+                    )
+                  }
+                  onChange={(event) => {
+                    updateField("projectType", event.target.value);
+                    setProjectTypeDropdownOpen(true);
+                  }}
+                  required
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 border-x-[4px] border-t-[5px] border-x-transparent border-t-[#8d99a6]" />
+                {projectTypeDropdownOpen && (
+                  <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-20 overflow-hidden rounded-lg border border-[#e1e7ee] bg-white p-1.5 shadow-[0_12px_30px_rgba(24,35,47,0.14)]">
+                    {filteredProjectTypes.length > 0 ? (
+                      filteredProjectTypes.map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-medium text-[#344352] transition hover:bg-[#f1f5ff] hover:text-[#2e6ff2]"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            updateField("projectType", type);
+                            setProjectTypeDropdownOpen(false);
+                          }}
+                        >
+                          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[#edf3ff] text-[10px] font-bold text-[#2e6ff2]">
+                            {type.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="truncate">{type}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-3 py-2.5 text-xs text-[#8d99a6]">
+                        No matching project type
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             <div>
-              <label className={labelClass}>Technology type</label>
-              {selectValue(
-                "technologyType",
-                form.technologyType,
-                customTechnologyType,
-                setCustomTechnologyType,
-                technologyTypes,
-              )}
+              <label className={labelClass}>Project Type</label>
+              <div className="relative">
+                <input
+                  className={`${inputClass} pr-9`}
+                  placeholder="Select or type a project type"
+                  value={form.technologyType}
+                  onFocus={() => setTechnologyTypeDropdownOpen(true)}
+                  onBlur={() =>
+                    window.setTimeout(
+                      () => setTechnologyTypeDropdownOpen(false),
+                      150,
+                    )
+                  }
+                  onChange={(event) => {
+                    updateField("technologyType", event.target.value);
+                    setTechnologyTypeDropdownOpen(true);
+                  }}
+                  required
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 border-x-[4px] border-t-[5px] border-x-transparent border-t-[#8d99a6]" />
+                {technologyTypeDropdownOpen && (
+                  <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-20 overflow-hidden rounded-lg border border-[#e1e7ee] bg-white p-1.5 shadow-[0_12px_30px_rgba(24,35,47,0.14)]">
+                    {filteredTechnologyTypes.length > 0 ? (
+                      filteredTechnologyTypes.map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-medium text-[#344352] transition hover:bg-[#f1f5ff] hover:text-[#2e6ff2]"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            updateField("technologyType", type);
+                            setTechnologyTypeDropdownOpen(false);
+                          }}
+                        >
+                          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[#edf3ff] text-[10px] font-bold text-[#2e6ff2]">
+                            {type.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="truncate">{type}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-3 py-2.5 text-xs text-[#8d99a6]">
+                        No matching project type
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <SectionHeading eyebrow="02" title="Tech Info" />
@@ -988,33 +1613,27 @@ function ProjectModal({
                       </button>
                     ))}
                   </div>
-                  <div className="mt-2 flex gap-2">
-                    <select
-                      className={inputClass.replace("mt-1 ", "")}
-                      value=""
-                      onChange={(event) => {
-                        if (
-                          event.target.value &&
-                          !form.technologies[category].includes(
-                            event.target.value,
-                          )
-                        )
-                          updateTechnology(category, event.target.value);
-                      }}
-                    >
-                      <option value="">Select technology</option>
-                      {technologyOptions[category].map((technology) => (
-                        <option key={technology} value={technology}>
-                          {technology}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="mt-2 flex gap-2">
+                  <div className="relative mt-2 flex gap-2">
                     <input
                       className={inputClass.replace("mt-1 ", "")}
-                      placeholder={`Add ${category} technology`}
+                      placeholder={`Select or type ${category} technology`}
                       value={customTech[category]}
+                      onFocus={() =>
+                        setTechnologyDropdownOpen((current) => ({
+                          ...current,
+                          [category]: true,
+                        }))
+                      }
+                      onBlur={() =>
+                        window.setTimeout(
+                          () =>
+                            setTechnologyDropdownOpen((current) => ({
+                              ...current,
+                              [category]: false,
+                            })),
+                          150,
+                        )
+                      }
                       onChange={(event) =>
                         setCustomTech({
                           ...customTech,
@@ -1028,6 +1647,58 @@ function ProjectModal({
                         }
                       }}
                     />
+                    <span className="pointer-events-none absolute right-[58px] top-1/2 -translate-y-1/2 border-x-[4px] border-t-[5px] border-x-transparent border-t-[#8d99a6]" />
+                    {technologyDropdownOpen[category] && (
+                      <div className="absolute left-0 right-[48px] top-[calc(100%+6px)] z-20 overflow-hidden rounded-lg border border-[#e1e7ee] bg-white p-1.5 shadow-[0_12px_30px_rgba(24,35,47,0.14)]">
+                        {technologyOptions[category].filter((technology) =>
+                          technology
+                            .toLowerCase()
+                            .includes(customTech[category].toLowerCase()),
+                        ).length > 0 ? (
+                          technologyOptions[category]
+                            .filter((technology) =>
+                              technology
+                                .toLowerCase()
+                                .includes(customTech[category].toLowerCase()),
+                            )
+                            .map((technology) => (
+                              <button
+                                key={technology}
+                                type="button"
+                                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-medium text-[#344352] transition hover:bg-[#f1f5ff] hover:text-[#2e6ff2]"
+                                onMouseDown={(event) =>
+                                  event.preventDefault()
+                                }
+                                onClick={() => {
+                                  if (
+                                    !form.technologies[category].includes(
+                                      technology,
+                                    )
+                                  )
+                                    updateTechnology(category, technology);
+                                  setCustomTech({
+                                    ...customTech,
+                                    [category]: "",
+                                  });
+                                  setTechnologyDropdownOpen((current) => ({
+                                    ...current,
+                                    [category]: false,
+                                  }));
+                                }}
+                              >
+                                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[#edf3ff] text-[10px] font-bold text-[#2e6ff2]">
+                                  {technology.charAt(0).toUpperCase()}
+                                </span>
+                                <span className="truncate">{technology}</span>
+                              </button>
+                            ))
+                        ) : (
+                          <div className="px-3 py-2.5 text-xs text-[#8d99a6]">
+                            Press Add to use this technology
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={() => addTechnology(category)}
@@ -1041,7 +1712,7 @@ function ProjectModal({
             </div>
           </div>
           <SectionHeading eyebrow="03" title="Sales Info" />
-          <div className="grid grid-cols-3 gap-4 max-md:grid-cols-1">
+          <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
             <div>
               <label className={labelClass}>Way of client collection</label>
               {selectValue(
@@ -1050,6 +1721,12 @@ function ProjectModal({
                 customCollection,
                 setCustomCollection,
                 collectionWays,
+                (value) => {
+                  const next = value.trim();
+                  if (!next) return;
+                  updateField("collectionWay", next);
+                  setCustomCollection("");
+                },
               )}
             </div>
             <div>
@@ -1065,16 +1742,6 @@ function ProjectModal({
                   <option key={person}>{person}</option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className={labelClass}>Commission platform name</label>
-              {selectValue(
-                "commissionPlatform",
-                form.commissionPlatform,
-                customPlatform,
-                setCustomPlatform,
-                commissionPlatforms,
-              )}
             </div>
           </div>
           <SectionHeading eyebrow="04" title="Accounts" />
@@ -1144,66 +1811,7 @@ function ProjectModal({
               ))}
             </div>
           </div>
-          <div className="grid grid-cols-4 gap-4 max-lg:grid-cols-2 max-md:grid-cols-1">
-            <label className={labelClass}>
-              Currency
-              <select
-                className={inputClass}
-                value={form.currency}
-                onChange={(event) =>
-                  updateField("currency", event.target.value)
-                }
-              >
-                {currencies.map((currency) => (
-                  <option key={currency}>{currency}</option>
-                ))}
-              </select>
-            </label>
-            {form.currency !== "BDT" && (
-              <Field
-                label="BDT value (optional)"
-                type="number"
-                value={form.bdtValue}
-                onChange={(value) => updateField("bdtValue", value)}
-              />
-            )}
-            <Field
-              label={
-                form.commissionMode === "percent"
-                  ? "Platform Commission (%)"
-                  : "Platform Commission amount"
-              }
-              type="number"
-              value={
-                form.commissionMode === "percent"
-                  ? form.commissionPercent
-                  : form.commissionAmount
-              }
-              onChange={(value) =>
-                updateField(
-                  form.commissionMode === "percent"
-                    ? "commissionPercent"
-                    : "commissionAmount",
-                  value,
-                )
-              }
-            />
-            <label className={labelClass}>
-              Commission mode
-              <select
-                className={inputClass}
-                value={form.commissionMode}
-                onChange={(event) =>
-                  updateField(
-                    "commissionMode",
-                    event.target.value as "amount" | "percent",
-                  )
-                }
-              >
-                <option value="amount">Manual amount</option>
-                <option value="percent">Percentage of price</option>
-              </select>
-            </label>
+          <div className="grid grid-cols-3 gap-4 max-lg:grid-cols-2 max-md:grid-cols-1">
             <Field
               label={
                 form.salesCommissionMode === "percent"
@@ -1237,65 +1845,68 @@ function ProjectModal({
               onChange={(value) => updateField("discount", value)}
             />
           </div>
-          <div className="grid grid-cols-3 gap-4 max-md:grid-cols-1">
+          <div className="flex items-center justify-between rounded-lg bg-[#edf3ff] px-4 py-3 text-xs text-[#2e6ff2]">
+            <span>Due amount</span>
+            <div className="flex items-center gap-3">
+              <strong className="text-sm">
+                {money(String(dueAmount), form.currency)}
+              </strong>
+              <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${paymentStatus === "Paid" ? "bg-[#eaf8f2] text-[#238d68]" : "bg-[#fff7e8] text-[#d58b35]"}`}>
+                {paymentStatus}
+              </span>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
             <label className={labelClass}>
-              Payment
+              Pay Amount
+              <input
+                type="number"
+                min="0"
+                max={totalAmount}
+                step="any"
+                value={form.payableAmount}
+                onChange={(event) =>
+                  updateField("payableAmount", event.target.value)
+                }
+                className={inputClass}
+              />
+            </label>
+            <label className={labelClass}>
+              Payment Method
               <select
+                required
                 className={inputClass}
                 value={form.paymentMethod}
-                onChange={(event) =>
-                  updateField("paymentMethod", event.target.value)
-                }
+                onChange={(event) => {
+                  updateField("paymentMethod", event.target.value);
+                  if (event.target.value !== "Cash")
+                    updateField("cashReceivedBy", "");
+                }}
               >
+                <option value="" disabled>
+                  Select payment method
+                </option>
+                {!paymentMethods.includes(form.paymentMethod) &&
+                  form.paymentMethod && (
+                    <option value={form.paymentMethod}>
+                      Current: {form.paymentMethod}
+                    </option>
+                  )}
                 {paymentMethods.map((method) => (
-                  <option key={method}>{method}</option>
+                  <option key={method} value={method}>
+                    {method}
+                  </option>
                 ))}
               </select>
             </label>
-            <Field
-              label="Payable amount"
-              type="number"
-              value={form.payableAmount}
-              onChange={(value) => updateField("payableAmount", value)}
-            />
-            <div className="flex items-end pb-2 text-xs text-[#7e8995]">
-              Due amount{" "}
-              <strong className="ml-auto text-base text-[#d8665d]">
-                {money(
-                  String(
-                    Math.max(
-                      0,
-                      totalAmount - (Number(form.payableAmount) || 0),
-                    ),
-                  ),
-                  form.currency,
-                )}
-              </strong>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3 rounded-lg border border-[#e6ebf1] bg-white p-3 max-sm:grid-cols-1">
-            <div className="grid gap-1 text-xs text-[#7e8995]">
-              <div className="flex items-center justify-between">
-                <span>Sub total</span>
-                <strong className="text-sm text-[#26333d]">
-                  {money(String(subtotal), form.currency)}
-                </strong>
-              </div>
-              <span className="text-[10px] text-[#a2abb5]">
-              Platform Commission:{" "}
-              {money(String(platformCommission), form.currency)}
-              </span>
-              <span className="text-[10px] text-[#a2abb5]">
-              Sales person commission:{" "}
-              {money(String(salesPersonCommission), form.currency)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between rounded-md bg-[#edf3ff] px-3 py-2 text-xs text-[#2e6ff2]">
-              <span>Total amount</span>
-              <strong className="text-sm">
-                {money(String(totalAmount), form.currency)}
-              </strong>
-            </div>
+            {form.paymentMethod === "Cash" && (
+              <Field
+                label="Cash received by"
+                value={form.cashReceivedBy ?? ""}
+                onChange={(value) => updateField("cashReceivedBy", value)}
+                required
+              />
+            )}
           </div>
         </div>
         <div className="flex justify-end gap-3 border-t border-[#e6ebf1] bg-white px-6 py-4 max-md:px-4">
@@ -1329,6 +1940,164 @@ function SectionHeading({
     <div className="flex items-center gap-2 border-b border-[#e6ebf1] pb-2">
       <span className="text-[10px] font-bold text-[#2e6ff2]">{eyebrow}</span>
       <h3 className="font-sans text-sm font-bold text-[#26333d]">{title}</h3>
+    </div>
+  );
+}
+
+function ClientModal({
+  form,
+  sourceOptions,
+  editing,
+  onChange,
+  onSourceAdd,
+  onSubmit,
+  onClose,
+}: {
+  form: ClientRecord;
+  sourceOptions: string[];
+  editing: boolean;
+  onChange: (field: keyof ClientRecord, value: string) => void;
+  onSourceAdd: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onClose: () => void;
+}) {
+  const inputClass =
+    "mt-1 w-full rounded-md border border-[#e4e9ef] bg-white px-2.5 py-2 text-xs text-[#26333d] outline-none transition focus:border-[#2e6ff2] focus:ring-2 focus:ring-[#edf3ff]";
+  const labelClass =
+    "text-[10px] font-semibold uppercase tracking-[0.05em] text-[#7e8995]";
+  const [customSource, setCustomSource] = useState("");
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#18232f]/45 p-4"
+      role="dialog"
+      aria-modal="true"
+    >
+      <form
+        onSubmit={onSubmit}
+        className="w-full max-w-[540px] overflow-hidden rounded-xl bg-[#f8fafb] shadow-2xl"
+      >
+        <div className="flex items-center justify-between border-b border-[#e6ebf1] bg-white px-6 py-5 max-md:px-4">
+          <div>
+            <h2 className="font-sans text-xl font-bold text-[#18232f]">
+              {editing ? "Edit client" : "Add new client"}
+            </h2>
+            <p className="mt-1 text-xs text-[#96a0ac]">
+              Save client details and source information.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid size-8 place-items-center rounded-lg bg-[#f3f5f7] text-lg text-[#687582]"
+            aria-label="Close client editor"
+          >
+            ×
+          </button>
+        </div>
+        <div className="grid gap-4 p-6 max-md:p-4">
+          <label className={labelClass}>
+            Client Name
+            <input
+              required
+              className={inputClass}
+              value={form.name}
+              onChange={(event) => onChange("name", event.target.value)}
+              placeholder="Acme Corporation"
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
+            <label className={labelClass}>
+              Phone
+              <input
+                className={inputClass}
+                value={form.phone}
+                onChange={(event) => onChange("phone", event.target.value)}
+                placeholder="+1 555 123 4567"
+              />
+            </label>
+            <label className={labelClass}>
+              Email
+              <input
+                type="email"
+                className={inputClass}
+                value={form.email}
+                onChange={(event) => onChange("email", event.target.value)}
+                placeholder="client@example.com"
+              />
+            </label>
+          </div>
+          <label className={labelClass}>
+            Address
+            <textarea
+              className={`${inputClass} min-h-[88px] resize-y`}
+              value={form.address}
+              onChange={(event) => onChange("address", event.target.value)}
+              placeholder="Street, city, country"
+            />
+          </label>
+          <div>
+            <label className={labelClass}>Source</label>
+            <select
+              className={inputClass}
+              value={sourceOptions.includes(form.source) ? form.source : "__custom"}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (next === "__custom") {
+                  setCustomSource("");
+                  onChange("source", "");
+                  return;
+                }
+                onChange("source", next);
+              }}
+            >
+              {sourceOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+              <option value="__custom">+ Add new source</option>
+            </select>
+            {(!sourceOptions.includes(form.source) || customSource) && (
+              <div className="mt-2 flex gap-2">
+                <input
+                  className={inputClass.replace("mt-1 ", "")}
+                  placeholder="Add new source"
+                  value={customSource}
+                  onChange={(event) => setCustomSource(event.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (customSource.trim()) {
+                      onSourceAdd(customSource.trim());
+                      setCustomSource("");
+                    }
+                  }}
+                  className="rounded-lg bg-[#edf3ff] px-3 text-xs font-semibold text-[#2e6ff2]"
+                >
+                  Add
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 border-t border-[#e6ebf1] bg-white px-6 py-4 max-md:px-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-[#e1e6ec] bg-white px-4 py-2.5 text-xs font-semibold text-[#687582]"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="rounded-lg bg-[#2e6ff2] px-5 py-2.5 text-xs font-semibold text-white"
+          >
+            {editing ? "Save changes" : "Save client"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -1443,19 +2212,12 @@ function InvoiceModal({
     project.commissionMode === "percent"
       ? subtotal * ((Number(project.commissionPercent) || 0) / 100)
       : Number(project.commissionAmount) || 0;
-  const salesPersonCommission =
-    project.salesCommissionMode === "percent"
-      ? subtotal * ((Number(project.salesCommission) || 0) / 100)
-      : Number(project.salesCommission) || 0;
-  const total = Math.max(
-    0,
-    subtotal -
-      commission -
-      salesPersonCommission -
-      (Number(project.discount) || 0),
-  );
-  const payable = Number(project.payableAmount) || 0;
-  const due = Math.max(0, total - payable);
+  const {
+    totalAmount: total,
+    paidAmount: payable,
+    dueAmount: due,
+    paymentStatus,
+  } = getProjectPaymentSummary(project);
   const technologies = categories.flatMap(
     (category) => project.technologies?.[category] ?? [],
   );
@@ -1519,8 +2281,11 @@ function InvoiceModal({
     line("Sub total", money(String(subtotal), currency));
     line("Commission", `- ${money(String(commission), currency)}`);
     line("Discount", `- ${money(project.discount, currency)}`);
-    line("Payable amount", money(String(payable), currency));
+    line("Pay amount", money(String(payable), currency));
     line("Due amount", money(String(due), currency));
+    line("Payment status", paymentStatus);
+    if (project.paymentMethod === "Cash")
+      line("Cash received by", project.cashReceivedBy ?? "-");
     y += 3;
     pdf.setFillColor(237, 243, 255);
     pdf.roundedRect(left, y - 5, 174, 13, 2, 2, "F");
@@ -1581,7 +2346,7 @@ function InvoiceModal({
             />
             <InvoiceValue label="Project type" value={project.projectType} />
             <InvoiceValue
-              label="Technology type"
+              label="Project Type"
               value={project.technologyType}
             />
           </InvoiceSection>
@@ -1605,6 +2370,12 @@ function InvoiceModal({
                 label="Payment method"
                 value={project.paymentMethod ?? "-"}
               />
+              {project.paymentMethod === "Cash" && (
+                <InvoiceValue
+                  label="Cash received by"
+                  value={project.cashReceivedBy ?? "-"}
+                />
+              )}
             </div>
           </section>
           <InvoiceSection title="Accounts">
@@ -1644,13 +2415,14 @@ function InvoiceModal({
                 value={`- ${money(project.discount, currency)}`}
               />
               <InvoiceLine
-                label="Payable amount"
+                label="Pay amount"
                 value={money(String(payable), currency)}
               />
               <InvoiceLine
                 label="Due amount"
                 value={money(String(due), currency)}
               />
+              <InvoiceLine label="Payment status" value={paymentStatus} />
               <div className="mt-2 flex justify-between rounded-lg bg-[#edf3ff] px-3 py-3 font-semibold text-[#2e6ff2]">
                 <span>Total amount</span>
                 <strong>{money(String(total), currency)}</strong>

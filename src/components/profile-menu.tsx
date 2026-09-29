@@ -9,6 +9,7 @@ export type ProfileData = {
   name: string;
   email: string;
   phone: string;
+  role: string;
   password?: string;
   teamName: string;
   technology: string;
@@ -19,6 +20,7 @@ export const defaultProfile: ProfileData = {
   name: "Jordan Davis",
   email: "jordan@focura.dev",
   phone: "+880 1711-000111",
+  role: "",
   teamName: "Engineering",
   technology: "Node JS, Mongo DB, REST API",
 };

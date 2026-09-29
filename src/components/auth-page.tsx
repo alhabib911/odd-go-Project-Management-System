@@ -9,6 +9,26 @@ type AuthPageProps = {
   mode: "login" | "register";
 };
 
+type RoleRequest = {
+  id?: string;
+  name?: string;
+  email: string;
+  status?: string;
+  access?: string[];
+  password?: string;
+};
+
+const superadminEmail = "abdullahalhabib100@gmail.com";
+const demoSuperadminPassword = "admin123";
+
+function readLocalRoleRequests() {
+  try {
+    return JSON.parse(window.localStorage.getItem("focura-role-requests") ?? "[]") as RoleRequest[];
+  } catch {
+    return [] as RoleRequest[];
+  }
+}
+
 const copy = {
   login: {
     eyebrow: "WELCOME BACK",
@@ -42,16 +62,60 @@ export default function AuthPage({ mode }: AuthPageProps) {
     event.preventDefault();
     setError("");
     setSubmitting(true);
+    const email = form.email.trim();
+    const password = form.password;
     const supabase = createSupabaseBrowserClient();
+
     if (!supabase) {
-      setError("Authentication is not configured.");
+      if (isLogin) {
+        const normalizedEmail = email.toLowerCase();
+        const normalizedPassword = password.trim();
+        const requests = readLocalRoleRequests();
+        const isSuperadmin = normalizedEmail === superadminEmail && normalizedPassword === demoSuperadminPassword;
+        const storedUser = requests.find((request) => request.email.toLowerCase() === normalizedEmail && request.password === normalizedPassword);
+
+        if (!isSuperadmin && !storedUser) {
+          setError("No matching account was found. Create an account or use the demo superadmin login.");
+          setSubmitting(false);
+          return;
+        }
+
+        const user = {
+          id: isSuperadmin ? "demo-superadmin" : storedUser?.id ?? normalizedEmail,
+          email: normalizedEmail,
+          name: isSuperadmin ? "Abdullah Al Habib" : storedUser?.name ?? normalizedEmail,
+        };
+
+        window.localStorage.setItem("focura-current-user", JSON.stringify(user));
+        window.localStorage.setItem("focura-authenticated", "true");
+        const approved = requests.find((request) => request.email.toLowerCase() === normalizedEmail && request.status === "Approved");
+        router.push(isSuperadmin || approved?.access?.includes("Projects") ? "/projects" : "/access-denied");
+        setSubmitting(false);
+        return;
+      }
+
+      const existing = readLocalRoleRequests();
+      const request = {
+        id: `local-${Date.now()}`,
+        name: form.name.trim(),
+        email: email.toLowerCase(),
+        status: "Pending",
+        requestedAt: new Date().toISOString(),
+        access: [],
+        password,
+      };
+      window.localStorage.setItem("focura-role-requests", JSON.stringify([...existing, request]));
+      window.localStorage.setItem("focura-current-user", JSON.stringify({ id: request.id, name: request.name, email: request.email }));
+      window.localStorage.setItem("focura-authenticated", "true");
+      router.push("/access-denied");
       setSubmitting(false);
       return;
     }
+
     if (isLogin) {
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email: form.email.trim(),
-        password: form.password,
+        email,
+        password,
       });
       if (signInError || !data.user) {
         setError(signInError?.message ?? "Unable to sign in.");
@@ -60,15 +124,15 @@ export default function AuthPage({ mode }: AuthPageProps) {
       }
       window.localStorage.setItem("focura-current-user", JSON.stringify({ id: data.user.id, email: data.user.email }));
       window.localStorage.setItem("focura-authenticated", "true");
-      const isSuperadmin = data.user.email?.toLowerCase() === "abdullahalhabib100@gmail.com";
-      const requests = JSON.parse(window.localStorage.getItem("focura-role-requests") ?? "[]") as Array<{ email: string; status: string; access?: string[] }>;
+      const isSuperadmin = data.user.email?.toLowerCase() === superadminEmail;
+      const requests = readLocalRoleRequests();
       const approved = requests.find((request) => request.email.toLowerCase() === data.user.email?.toLowerCase() && request.status === "Approved");
-      router.push(isSuperadmin || approved?.access?.includes("Overview") ? "/dashboard" : "/access-denied");
+      router.push(isSuperadmin || approved?.access?.includes("Projects") ? "/projects" : "/access-denied");
       return;
     }
     const { data, error: signUpError } = await supabase.auth.signUp({
-      email: form.email.trim(),
-      password: form.password,
+      email,
+      password,
       options: { data: { full_name: form.name.trim() } },
     });
     if (signUpError || !data.user) {
@@ -76,8 +140,8 @@ export default function AuthPage({ mode }: AuthPageProps) {
       setSubmitting(false);
       return;
     }
-    const existing = JSON.parse(window.localStorage.getItem("focura-role-requests") ?? "[]") as Array<Record<string, string>>;
-    const request = { id: data.user.id, name: form.name.trim(), email: form.email.trim(), status: "Pending", requestedAt: new Date().toISOString() };
+    const existing = readLocalRoleRequests();
+    const request = { id: data.user.id, name: form.name.trim(), email, status: "Pending", requestedAt: new Date().toISOString() };
     window.localStorage.setItem("focura-role-requests", JSON.stringify([...existing, request]));
     window.localStorage.setItem("focura-current-user", JSON.stringify({ id: data.user.id, name: request.name, email: request.email }));
     window.localStorage.setItem("focura-authenticated", "true");

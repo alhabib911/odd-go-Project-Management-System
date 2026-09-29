@@ -19,7 +19,6 @@ type IconName =
   | "spark";
 
 const navigation: { label: string; icon: IconName }[] = [
-  { label: "Overview", icon: "grid" },
   { label: "Role Management", icon: "settings" },
   { label: "Projects", icon: "folder" },
   { label: "Tasks", icon: "check" },
@@ -150,7 +149,7 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 
 export default function DashboardPage() {
   // This local state makes the sidebar feel navigable before server-side routing is connected.
-  const [active, setActive] = useState("Overview");
+  const [active, setActive] = useState("Projects");
   const [projects, setProjects] = useState(initialProjects);
   const [tasks, setTasks] = useState<
     { title: string; project: string; due: string; status: string }[]
@@ -248,7 +247,7 @@ export default function DashboardPage() {
           {allowedNavigation?.map((item) => (
             <Link
               key={item.label}
-              href={item.label === "Overview" ? "/dashboard" : item.label === "Role Management" ? "/role-management" : item.label === "Projects" ? "/projects" : `/${item.label.toLowerCase()}`}
+              href={item.label === "Role Management" ? "/role-management" : item.label === "Projects" ? "/projects" : `/${item.label.toLowerCase()}`}
               className={active === item.label ? "flex w-full items-center gap-[13px] rounded-lg bg-[#edf3ff] px-[13px] py-[11px] text-left font-semibold text-[#2e6ff2] max-md:justify-center max-md:px-0 max-md:py-3" : "flex w-full items-center gap-[13px] rounded-lg bg-transparent px-[13px] py-[11px] text-left text-[#8b96a3] hover:bg-[#f5f7f9] hover:text-[#18232f] max-md:justify-center max-md:px-0 max-md:py-3"}
               onClick={() => setActive(item.label)}
             >

@@ -21,7 +21,12 @@ type Task = {
   activity?: TaskActivity[];
 };
 
-type GuideCard = { id: string; title: string; description: string };
+type GuideCard = {
+  id: string;
+  title: string;
+  description: string;
+  status?: "Todo" | "Doing" | "Review" | "Done";
+};
 type TaskActivity = {
   id: string;
   action: string;
@@ -34,6 +39,14 @@ type ProjectOption = {
   name: string;
   clientName: string;
   invoiceNumber: string;
+};
+type TaskProjectGroup = {
+  key: string;
+  project: string;
+  projectId?: string;
+  tasks: Task[];
+  incompleteCount: number;
+  totalCards: number;
 };
 
 const initialTasks: Task[] = [
@@ -86,12 +99,111 @@ const emptyTask = (): Omit<Task, "id"> => ({
   guideCards: [],
 });
 
-const taskTableColumns =
-  "grid-cols-[minmax(140px,1.2fr)_minmax(120px,1fr)_110px_90px_100px_auto_auto] max-lg:grid-cols-[minmax(140px,1.2fr)_minmax(110px,1fr)_100px_85px_auto_auto] max-md:grid-cols-[1fr_auto_auto_auto] max-md:gap-2.5";
+function TaskProjectTable({
+  groups,
+  emptyMessage,
+  onDelete,
+  onActivity,
+}: {
+  groups: TaskProjectGroup[];
+  emptyMessage: string;
+  onDelete: (group: TaskProjectGroup) => void;
+  onActivity: (task: Task) => void;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[760px]">
+        <thead>
+          <tr className="text-left">
+            <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+              Project
+            </th>
+            <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+              Total cards
+            </th>
+            <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+              Latest deadline
+            </th>
+            <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+              Action
+            </th>
+            <th className="pb-3 text-right text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
+              Activity log
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.length === 0 ? (
+            <tr>
+              <td colSpan={5} className="py-8 text-center text-xs text-[#89939f]">
+                {emptyMessage}
+              </td>
+            </tr>
+          ) : (
+            groups.map((group) => {
+              const firstTask = group.tasks[0];
+              const projectHref = `/tasks/${group.projectId ?? encodeURIComponent(group.project)}/starter-guide`;
+              return (
+                <tr className="border-t border-[#f0f2f4]" key={group.key}>
+                  <td className="py-4">
+                    <div className="flex items-center gap-2.5">
+                      <span className="grid size-[29px] place-items-center rounded-lg bg-[#edf3ff] text-[9px] font-bold text-[#2e6ff2]">
+                        {group.project.slice(0, 2).toUpperCase()}
+                      </span>
+                      <div>
+                        <Link
+                          href={projectHref}
+                          className="block text-xs font-semibold text-[#26333d] hover:text-[#2e6ff2] hover:underline"
+                        >
+                          {group.project}
+                        </Link>
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className="text-[10px] text-[#89939f]">
+                            {firstTask?.assignee ?? "No assignee"}
+                          </span>
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${group.incompleteCount > 0 ? "bg-[#fff6e9] text-[#d58b35]" : "bg-[#eaf8f2] text-[#45b990]"}`}>
+                            {group.incompleteCount} incomplete
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-4 text-xs text-[#687582]">{group.totalCards}</td>
+                  <td className="py-4 text-[10px] text-[#89939f]">
+                    {firstTask?.due || "No due date"}
+                  </td>
+                  <td className="py-4">
+                    <button
+                      type="button"
+                      onClick={() => onDelete(group)}
+                      className="rounded-md bg-[#fff0ef] px-2 py-1 text-[10px] font-semibold text-[#d8665d]"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                  <td className="py-4 text-right">
+                    {firstTask && (
+                      <button
+                        type="button"
+                        onClick={() => onActivity(firstTask)}
+                        className="rounded-md bg-[#f3f5f7] px-2 py-1 text-[10px] font-semibold text-[#687582] hover:bg-[#e9edf2]"
+                      >
+                        View
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
-  const [filter, setFilter] = useState<"All" | Task["status"]>("All");
   const [form, setForm] = useState(emptyTask);
   const [isOpen, setIsOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -103,7 +215,8 @@ export default function TasksPage() {
   const [setupStep, setSetupStep] = useState<"project" | "team">("project");
   const [teamMember, setTeamMember] = useState("");
   const [activityTask, setActivityTask] = useState<Task | null>(null);
-  const [taskPage, setTaskPage] = useState(1);
+  const [incompletePage, setIncompletePage] = useState(1);
+  const [completedPage, setCompletedPage] = useState(1);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("focura-tasks");
@@ -178,6 +291,14 @@ export default function TasksPage() {
     setTasks((current) => current.filter((task) => task.id !== id));
   }
 
+  function removeProjectGroup(group: TaskProjectGroup) {
+    if (window.confirm(`Delete all tasks for ${group.project}?`)) {
+      setTasks((current) =>
+        current.filter((task) => !group.tasks.some((item) => item.id === task.id)),
+      );
+    }
+  }
+
   function updateStatus(task: Task, status: Task["status"]) {
     const timestamp = new Date().toLocaleString([], {
       dateStyle: "medium",
@@ -223,17 +344,71 @@ export default function TasksPage() {
     );
   }
 
-  const visibleTasks =
-    filter === "All" ? tasks : tasks.filter((task) => task.status === filter);
-  const taskPageCount = Math.ceil(visibleTasks.length / 8);
-  const currentTaskPage = Math.min(taskPage, Math.max(taskPageCount, 1));
-  const paginatedTasks = visibleTasks.slice((currentTaskPage - 1) * 8, currentTaskPage * 8);
-  const todoCount = tasks.filter((task) => task.status === "To do").length;
-  const inProgressCount = tasks.filter(
-    (task) => task.status === "In progress",
-  ).length;
-  const doneCount = tasks.filter((task) => task.status === "Done").length;
-
+  const groupedProjects = Array.from(
+    tasks.reduce((groups, task) => {
+      const savedProject = projects.find(
+        (project) => project.id === task.projectId || project.name === task.project,
+      );
+      const projectId = task.projectId ?? savedProject?.id;
+      const key = projectId ?? task.project;
+      const current = groups.get(key);
+      if (current) {
+        current.tasks.push(task);
+      } else {
+        groups.set(key, {
+          key,
+          project: savedProject?.name ?? task.project,
+          projectId,
+          tasks: [task],
+          incompleteCount: 0,
+          totalCards: 0,
+        });
+      }
+      return groups;
+    }, new Map<string, TaskProjectGroup>()).values(),
+  ).map((group) => {
+    const guideCards = Array.from(
+      new Map(
+        group.tasks
+          .flatMap((task) => task.guideCards ?? [])
+          .map((card) => [card.id, card]),
+      ).values(),
+    );
+    const standaloneTasks = group.tasks.filter(
+      (task) => !task.guideCards?.length,
+    );
+    return {
+      ...group,
+      totalCards: guideCards.length + standaloneTasks.length,
+      incompleteCount:
+        guideCards.filter((card) => card.status !== "Done").length +
+        standaloneTasks.filter((task) => task.status !== "Done").length,
+    };
+  });
+  const incompleteProjects = groupedProjects.filter(
+    (group) => group.incompleteCount > 0,
+  );
+  const completedProjects = groupedProjects.filter(
+    (group) => group.incompleteCount === 0,
+  );
+  const incompletePageCount = Math.ceil(incompleteProjects.length / 5);
+  const completedPageCount = Math.ceil(completedProjects.length / 5);
+  const currentIncompletePage = Math.min(
+    incompletePage,
+    Math.max(incompletePageCount, 1),
+  );
+  const currentCompletedPage = Math.min(
+    completedPage,
+    Math.max(completedPageCount, 1),
+  );
+  const paginatedIncompleteProjects = incompleteProjects.slice(
+    (currentIncompletePage - 1) * 5,
+    currentIncompletePage * 5,
+  );
+  const paginatedCompletedProjects = completedProjects.slice(
+    (currentCompletedPage - 1) * 5,
+    currentCompletedPage * 5,
+  );
   return (
     <div className="flex min-h-screen bg-[#f8fafb]">
       <WorkspaceSidebar active="Tasks" />
@@ -286,28 +461,6 @@ export default function TasksPage() {
               <span className="text-base leading-none">+</span>Add new task
             </button>
           </div>
-          <div className="mb-5 grid grid-cols-4 gap-3 max-lg:grid-cols-2 max-md:grid-cols-1">
-            <Summary
-              label="All tasks"
-              value={String(tasks.length)}
-              tone="blue"
-            />
-            <Summary
-              label="To do"
-              value={String(todoCount)}
-              tone="gray"
-            />
-            <Summary
-              label="In progress"
-              value={String(inProgressCount)}
-              tone="orange"
-            />
-            <Summary
-              label="Done"
-              value={String(doneCount)}
-              tone="green"
-            />
-          </div>
           <section className="overflow-hidden rounded-xl border border-[#e6ebf1] bg-white p-6 shadow-[0_12px_32px_rgba(30,55,80,0.04)] max-md:p-4">
             <div className="mb-5 flex items-center justify-between gap-3 max-sm:items-start max-sm:flex-col">
               <div>
@@ -318,145 +471,48 @@ export default function TasksPage() {
                   Tasks assigned across your projects
                 </p>
               </div>
-              <div className="flex gap-1 rounded-lg bg-[#f3f5f7] p-1">
-                {(["All", "To do", "In progress", "Done"] as const).map(
-                  (option) => (
-                    <button
-                      type="button"
-                      key={option}
-                      onClick={() => setFilter(option)}
-                      className={
-                        filter === option
-                          ? "rounded-md bg-white px-2.5 py-1.5 text-[10px] font-semibold text-[#2e6ff2] shadow-sm"
-                          : "rounded-md bg-transparent px-2.5 py-1.5 text-[10px] text-[#89939f]"
-                      }
-                    >
-                      {option}
-                    </button>
-                  ),
-                )}
-              </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[850px]">
-                <thead>
-                  <tr className="text-left">
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Project
-                    </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Assign By
-                    </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Deadline
-                    </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Priority
-                    </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Status
-                    </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Action
-                    </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Activity log
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedTasks.map((task) => {
-                    const initials = task.project.slice(0, 2).toUpperCase();
-                    return (
-                      <tr
-                        className="border-t border-[#f0f2f4]"
-                        key={task.id}
-                      >
-                        <td className="py-4">
-                          <div className="flex items-center gap-2.5">
-                            <span className="grid size-[29px] place-items-center rounded-lg bg-[#edf3ff] text-[9px] font-bold text-[#2e6ff2]">
-                              {initials}
-                            </span>
-                            <div>
-                              <Link
-                                href={`/tasks/${task.projectId ?? encodeURIComponent(task.project)}/starter-guide`}
-                                className="block text-xs font-semibold text-[#26333d] hover:text-[#2e6ff2] hover:underline"
-                              >
-                                {task.project}
-                              </Link>
-                              <span className="block text-[10px] text-[#89939f]">
-                                {task.title}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-4 text-xs text-[#89939f]">
-                          {task.createdBy ?? task.assignee}
-                        </td>
-                        <td className="py-4 text-[10px] text-[#89939f]">
-                          {task.due || "No due date"}
-                        </td>
-                        <td>
-                          <span
-                            className={`rounded-full px-2 py-1 text-[10px] ${
-                              task.priority === "High"
-                                ? "bg-[#fff0ef] text-[#d8665d]"
-                                : task.priority === "Medium"
-                                  ? "bg-[#fff6e9] text-[#d58b35]"
-                                  : "bg-[#edf3ff] text-[#2e6ff2]"
-                            }`}
-                          >
-                            {task.priority}
-                          </span>
-                        </td>
-                        <td>
-                          <select
-                            aria-label={`Change ${task.project} status`}
-                            value={task.status}
-                            onChange={(event) =>
-                              updateStatus(
-                                task,
-                                event.target.value as Task["status"],
-                              )
-                            }
-                            className="rounded-md border border-[#e4e9ef] bg-white px-2 py-1 text-[10px] font-semibold text-[#26333d] outline-none focus:border-[#2e6ff2]"
-                          >
-                            <option>To do</option>
-                            <option value="In progress">In Progress</option>
-                            <option>Done</option>
-                          </select>
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            onClick={() => removeTask(task.id)}
-                            className="rounded-md bg-[#fff0ef] px-2 py-1 text-[10px] font-semibold text-[#d8665d]"
-                          >
-                            Delete
-                          </button>
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            onClick={() => setActivityTask(task)}
-                            className="rounded-md bg-[#f3f5f7] px-2 py-1 text-[10px] font-semibold text-[#687582] hover:bg-[#e9edf2]"
-                          >
-                            View
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {taskPageCount > 1 && (
+            <TaskProjectTable
+              groups={paginatedIncompleteProjects}
+              emptyMessage="No projects with incomplete cards."
+              onDelete={removeProjectGroup}
+              onActivity={setActivityTask}
+            />
+            {incompletePageCount > 1 && (
               <TaskPagination
-                page={currentTaskPage}
-                pageCount={taskPageCount}
-                onChange={setTaskPage}
+                page={currentIncompletePage}
+                pageCount={incompletePageCount}
+                onChange={setIncompletePage}
               />
             )}
+            <div className="mt-10 border-t border-[#e6ebf1] pt-6">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-sans text-base font-bold text-[#18232f]">
+                    Completed projects
+                  </h2>
+                  <p className="mt-1 text-xs text-[#96a0ac]">
+                    Projects with no incomplete cards
+                  </p>
+                </div>
+                <span className="rounded-full bg-[#eaf8f2] px-2.5 py-1 text-[10px] font-semibold text-[#45b990]">
+                  {completedProjects.length} completed
+                </span>
+              </div>
+              <TaskProjectTable
+                groups={paginatedCompletedProjects}
+                emptyMessage="No completed projects yet."
+                onDelete={removeProjectGroup}
+                onActivity={setActivityTask}
+              />
+              {completedPageCount > 1 && (
+                <TaskPagination
+                  page={currentCompletedPage}
+                  pageCount={completedPageCount}
+                  onChange={setCompletedPage}
+                />
+              )}
+            </div>
           </section>
         </div>
       </main>
@@ -723,7 +779,7 @@ function TaskModal({
               </strong>
             </div>
             <label className={`${labelClass} flex gap-2`}>
-              Add team member
+              Add Team Member
               <input
                 className={inputClass}
                 value={teamMember}

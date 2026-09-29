@@ -1,11 +1,10 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import Link from "next/link";
 import WorkspaceSidebar, { Icon } from "@/components/workspace-sidebar";
 import ProfileMenu from "@/components/profile-menu";
 
-export type MemberStatus = "Active" | "In a meeting" | "On leave" | "Offline";
+export type MemberStatus = "Active" | "Inactive";
 
 export type ActivityEvent = {
   id: string;
@@ -19,6 +18,7 @@ export type TeamGroup = {
   id: string;
   name: string;
   logo: string;
+  role?: string;
 };
 
 export type RegisteredUser = {
@@ -44,81 +44,7 @@ export type TeamMember = {
 };
 
 export type MemberForm = Omit<TeamMember, "id">;
-
-const registeredUsers: RegisteredUser[] = [
-  {
-    id: "reg-1",
-    name: "Jordan Davis",
-    email: "jordan@focura.dev",
-    phone: "+880 1711-000111",
-    role: "Backend Developer",
-    skills: ["Node JS", "Mongo DB", "REST API", "Express"],
-  },
-  {
-    id: "reg-2",
-    name: "Ava Morgan",
-    email: "ava@focura.dev",
-    phone: "+880 1722-000222",
-    role: "UI/UX Designer",
-    skills: ["Figma", "UI Design", "User Research", "Prototyping"],
-  },
-  {
-    id: "reg-3",
-    name: "Riley Khan",
-    email: "riley@focura.dev",
-    phone: "+880 1733-000333",
-    role: "Frontend Developer",
-    skills: ["Next JS", "TypeScript", "Tailwind CSS", "React JS"],
-  },
-  {
-    id: "reg-4",
-    name: "Maya Chen",
-    email: "maya@focura.dev",
-    phone: "+880 1744-000444",
-    role: "UI/UX Designer",
-    skills: ["Figma", "Design Systems", "Wireframing"],
-  },
-  {
-    id: "reg-5",
-    name: "Mina Park",
-    email: "mina@focura.dev",
-    phone: "+880 1755-000555",
-    role: "Database Engineer",
-    skills: ["Mongo DB", "Supabase", "PostgreSQL", "Redis"],
-  },
-  {
-    id: "reg-6",
-    name: "Noah Wilson",
-    email: "noah@focura.dev",
-    phone: "+880 1766-000666",
-    role: "Full Stack Developer",
-    skills: ["React JS", "Node JS", "TypeScript", "GraphQL"],
-  },
-  {
-    id: "reg-7",
-    name: "Sam Lee",
-    email: "sam@focura.dev",
-    phone: "+880 1777-000777",
-    role: "Sales Representative",
-    skills: ["Client Relations", "Negotiation", "CRM", "Lead Gen"],
-  },
-  {
-    id: "reg-8",
-    name: "Alex Rivera",
-    email: "alex@focura.dev",
-    phone: "+880 1788-000888",
-    role: "Frontend Developer",
-    skills: ["React JS", "Vue JS", "CSS3", "Redux"],
-  },
-  {
-    id: "reg-9",
-    name: "Sara Connor",
-    email: "sara@focura.dev",
-    phone: "+880 1799-000999",
-    role: "Backend Developer",
-    skills: ["Python", "Django", "PostgreSQL", "Docker"],
-  },
-];
+type TeamMemberEditDraft = Pick<TeamMember, "role" | "teamName">;
 
 const initialTeams: TeamGroup[] = [
   { id: "team-1", name: "Engineering", logo: "⚡" },
@@ -165,7 +91,7 @@ const initialMembers: TeamMember[] = [
     phone: "+880 1744-000444",
     role: "UI/UX Designer",
     teamName: "Design",
-    status: "In a meeting",
+    status: "Active",
     skills: ["Figma", "Design Systems"],
   },
   {
@@ -185,7 +111,7 @@ const initialMembers: TeamMember[] = [
     phone: "+880 1766-000666",
     role: "Full Stack Developer",
     teamName: "Engineering",
-    status: "On leave",
+    status: "Inactive",
     skills: ["React JS", "Node JS", "TypeScript"],
   },
   {
@@ -212,10 +138,137 @@ const emptyForm = (): MemberForm => ({
 });
 
 const defaultLogoOptions = ["⚡", "🎨", "🚀", "🛡️", "💻", "📊", "🔮", "💡", "🌐"];
+const suggestedTeamRoles = [
+  "Project Manager",
+  "Product Manager",
+  "Team Lead",
+  "Developer",
+  "Designer",
+  "QA Engineer",
+  "Business Analyst",
+  "Sales Representative",
+];
+
+type StoredProfile = {
+  id?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  avatarUrl?: string;
+  role?: string;
+  teamName?: string;
+  skills?: unknown;
+  technology?: string;
+};
+
+type StoredRoleRequest = {
+  email: string;
+  role?: string;
+  teamName?: string;
+};
+
+function readRegisteredUsersFromProfiles(): RegisteredUser[] {
+  let roleRequests: StoredRoleRequest[] = [];
+  try {
+    roleRequests = JSON.parse(
+      window.localStorage.getItem("focura-role-requests") ?? "[]",
+    ) as StoredRoleRequest[];
+  } catch {
+    roleRequests = [];
+  }
+
+  const registeredUsers: RegisteredUser[] = [];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (!key?.startsWith("focura-profile:")) continue;
+
+    try {
+      const profile = JSON.parse(
+        window.localStorage.getItem(key) ?? "null",
+      ) as StoredProfile | null;
+      if (!profile) continue;
+      const name = profile?.name?.trim() ?? "";
+      const email = profile?.email?.trim() ?? "";
+      const phone = profile?.phone?.trim() ?? "";
+      if (!name || !email.includes("@") || !phone) continue;
+
+      const request = roleRequests.find(
+        (item) => item.email.toLowerCase() === email.toLowerCase(),
+      );
+      const skills = Array.isArray(profile.skills)
+        ? profile.skills.filter(
+            (skill): skill is string =>
+              typeof skill === "string" && Boolean(skill.trim()),
+          )
+        : (profile.technology ?? "")
+            .split(",")
+            .map((skill) => skill.trim())
+            .filter(Boolean);
+
+      registeredUsers.push({
+        id: profile.id ?? key,
+        name,
+        email,
+        phone,
+        avatarUrl: profile.avatarUrl,
+        role:
+          profile.role?.trim() ||
+          request?.role?.trim() ||
+          request?.teamName?.trim() ||
+          profile.teamName?.trim() ||
+          "Member",
+        skills,
+      });
+    } catch {
+      continue;
+    }
+  }
+  return registeredUsers;
+}
+
+function updateSavedProfileRole(email: string, role: string) {
+  const normalizedEmail = email.toLowerCase();
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (!key?.startsWith("focura-profile:")) continue;
+    try {
+      const profile = JSON.parse(
+        window.localStorage.getItem(key) ?? "null",
+      ) as StoredProfile | null;
+      if (profile?.email?.toLowerCase() === normalizedEmail) {
+        window.localStorage.setItem(key, JSON.stringify({ ...profile, role }));
+      }
+    } catch {
+      continue;
+    }
+  }
+}
+
+function updateSavedProfileTeamName(email: string, teamName: string) {
+  const normalizedEmail = email.toLowerCase();
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (!key?.startsWith("focura-profile:")) continue;
+    try {
+      const profile = JSON.parse(
+        window.localStorage.getItem(key) ?? "null",
+      ) as StoredProfile | null;
+      if (profile?.email?.toLowerCase() === normalizedEmail) {
+        window.localStorage.setItem(
+          key,
+          JSON.stringify({ ...profile, teamName }),
+        );
+      }
+    } catch {
+      continue;
+    }
+  }
+}
 
 export default function TeamPage() {
   const [teams, setTeams] = useState<TeamGroup[]>(initialTeams);
   const [members, setMembers] = useState<TeamMember[]>(initialMembers);
+  const [registeredUsers, setRegisteredUsers] = useState<RegisteredUser[]>([]);
   const [activeTeamFilter, setActiveTeamFilter] = useState<string>("All");
   const [hydrated, setHydrated] = useState(false);
   const [form, setForm] = useState<MemberForm>(emptyForm);
@@ -224,16 +277,25 @@ export default function TeamPage() {
   // Modals state
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
   const [teamPage, setTeamPage] = useState(1);
+  const [isTeamListOpen, setIsTeamListOpen] = useState(false);
+  const [teamListError, setTeamListError] = useState("");
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
+  const [teamMemberDrafts, setTeamMemberDrafts] = useState<
+    Record<string, TeamMemberEditDraft>
+  >({});
   const [activityMember, setActivityMember] = useState<TeamMember | null>(null);
   const [activityLogs, setActivityLogs] = useState<
     Record<string, ActivityEvent[]>
   >({});
 
   // Form inputs
-  const [skillInput, setSkillInput] = useState("");
   const [newTeamName, setNewTeamName] = useState("");
+  const [newTeamRole, setNewTeamRole] = useState("");
+  const [roleOptionsOpen, setRoleOptionsOpen] = useState(false);
+  const [activeRoleOption, setActiveRoleOption] = useState(-1);
   const [newTeamLogo, setNewTeamLogo] = useState("⚡");
+  const [teamFormError, setTeamFormError] = useState("");
 
   useEffect(() => {
     const savedTeams = window.localStorage.getItem("focura-teams");
@@ -241,6 +303,7 @@ export default function TeamPage() {
     const savedActivity = window.localStorage.getItem("focura-team-activity");
 
     const timer = window.setTimeout(() => {
+      setRegisteredUsers(readRegisteredUsersFromProfiles());
       if (savedTeams) {
         try {
           const parsed = JSON.parse(savedTeams) as TeamGroup[];
@@ -258,6 +321,7 @@ export default function TeamPage() {
                 ...item,
                 phone: item.phone ?? "",
                 teamName: item.teamName ?? "Engineering",
+                status: item.status === "Active" ? "Active" : "Inactive",
                 skills: Array.isArray(item.skills) ? item.skills : [],
               })),
             );
@@ -297,7 +361,20 @@ export default function TeamPage() {
       }
       setHydrated(true);
     }, 0);
-    return () => window.clearTimeout(timer);
+    function refreshRegisteredUsers(event: StorageEvent) {
+      if (
+        event.key === null ||
+        event.key.startsWith("focura-profile:") ||
+        event.key === "focura-role-requests"
+      ) {
+        setRegisteredUsers(readRegisteredUsersFromProfiles());
+      }
+    }
+    window.addEventListener("storage", refreshRegisteredUsers);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("storage", refreshRegisteredUsers);
+    };
   }, []);
 
   useEffect(() => {
@@ -339,15 +416,148 @@ export default function TeamPage() {
     event.preventDefault();
     const name = newTeamName.trim();
     if (!name) return;
+    const duplicate = teams.some(
+      (team) =>
+        team.id !== editingTeamId &&
+        team.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (duplicate) {
+      setTeamFormError("A team with this name already exists.");
+      return;
+    }
+
+    if (editingTeamId) {
+      const existingTeam = teams.find((team) => team.id === editingTeamId);
+      if (!existingTeam) return;
+      const nextMembers = members.map((member) => {
+        const draft = teamMemberDrafts[member.id];
+        if (!draft) return member;
+        const role = draft.role.trim() || member.role;
+        const teamName =
+          draft.teamName === existingTeam.name ? name : draft.teamName;
+        if (role !== member.role) updateSavedProfileRole(member.email, role);
+        return { ...member, role, teamName };
+      });
+      setTeams((current) =>
+        current.map((team) =>
+          team.id === editingTeamId
+            ? { ...team, name, role: newTeamRole.trim(), logo: newTeamLogo || "⚡" }
+            : team,
+        ),
+      );
+      setMembers(nextMembers);
+      setRegisteredUsers(readRegisteredUsersFromProfiles());
+      setEditingTeamId(null);
+      setTeamMemberDrafts({});
+      setNewTeamName("");
+      setNewTeamRole("");
+      setRoleOptionsOpen(false);
+      setNewTeamLogo("⚡");
+      setTeamFormError("");
+      setIsTeamModalOpen(false);
+      return;
+    }
+
     const newTeam: TeamGroup = {
       id: crypto.randomUUID(),
       name,
+      role: newTeamRole.trim(),
       logo: newTeamLogo || "⚡",
     };
     setTeams((current) => [...current, newTeam]);
     setNewTeamName("");
+    setNewTeamRole("");
+    setRoleOptionsOpen(false);
     setNewTeamLogo("⚡");
+    setTeamFormError("");
     setIsTeamModalOpen(false);
+  }
+
+  function openTeamEditor(team: TeamGroup) {
+    setIsTeamListOpen(false);
+    setEditingTeamId(team.id);
+    setNewTeamName(team.name);
+    setNewTeamRole(team.role ?? "");
+    setRoleOptionsOpen(false);
+    setNewTeamLogo(team.logo);
+    setTeamMemberDrafts(
+      Object.fromEntries(
+        members
+          .filter((member) => member.teamName === team.name)
+          .map((member) => [
+            member.id,
+            { role: member.role, teamName: member.teamName },
+          ]),
+      ),
+    );
+    setTeamFormError("");
+    setIsTeamModalOpen(true);
+  }
+
+  function openTeamList() {
+    setTeamListError("");
+    setIsTeamListOpen(true);
+  }
+
+  function deleteTeam(team: TeamGroup) {
+    if (teams.length <= 1) {
+      setTeamListError("At least one team must remain in the workspace.");
+      return;
+    }
+
+    const fallbackTeam = teams.find((item) => item.id !== team.id);
+    if (!fallbackTeam) return;
+    const affectedMembers = members.filter(
+      (member) => member.teamName === team.name,
+    );
+    const reassignmentMessage = affectedMembers.length
+      ? ` ${affectedMembers.length} member(s) will be moved to ${fallbackTeam.name}.`
+      : "";
+    if (
+      !window.confirm(
+        `Delete ${team.name}?${reassignmentMessage}`,
+      )
+    )
+      return;
+
+    affectedMembers.forEach((member) =>
+      updateSavedProfileTeamName(member.email, fallbackTeam.name),
+    );
+    setTeams((current) => current.filter((item) => item.id !== team.id));
+    setMembers((current) =>
+      current.map((member) => {
+        if (member.teamName !== team.name) return member;
+        return { ...member, teamName: fallbackTeam.name };
+      }),
+    );
+    if (activeTeamFilter === team.name) setActiveTeamFilter("All");
+    setTeamPage(1);
+    setTeamListError("");
+  }
+
+  function openTeamCreator() {
+    setEditingTeamId(null);
+    setTeamMemberDrafts({});
+    setNewTeamName("");
+    setNewTeamRole("");
+    setRoleOptionsOpen(false);
+    setNewTeamLogo("⚡");
+    setTeamFormError("");
+    setIsTeamModalOpen(true);
+  }
+
+  function updateTeamMemberDraft(
+    memberId: string,
+    field: keyof TeamMemberEditDraft,
+    value: string,
+  ) {
+    setTeamMemberDrafts((current) => ({
+      ...current,
+      [memberId]: {
+        ...(current[memberId] ?? { role: "", teamName: "" }),
+        [field]: value,
+      },
+    }));
   }
 
   function handleSelectRegisteredUser(userId: string) {
@@ -368,30 +578,14 @@ export default function TeamPage() {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
-  function addSkill() {
-    const val = skillInput.trim();
-    if (!val || (form.skills ?? []).includes(val)) return;
-    setForm((current) => ({
-      ...current,
-      skills: [...(current.skills ?? []), val],
-    }));
-    setSkillInput("");
-  }
-
-  function removeSkill(skill: string) {
-    setForm((current) => ({
-      ...current,
-      skills: (current.skills ?? []).filter((s) => s !== skill),
-    }));
-  }
-
   function openNewMember(teamName?: string) {
+    const selectedTeam = teams.find((team) => team.name === teamName);
     setEditingId(null);
     setForm({
       ...emptyForm(),
       teamName: teamName ?? teams[0]?.name ?? "Engineering",
+      role: selectedTeam?.role || emptyForm().role,
     });
-    setSkillInput("");
     setIsMemberModalOpen(true);
   }
 
@@ -427,9 +621,16 @@ export default function TeamPage() {
       members: visibleMembers.filter((member) => member.teamName === team.name),
     }))
     .filter((team) => team.members.length > 0);
-  const teamPageCount = Math.ceil(visibleTeams.length / 8);
+  const teamPageCount = Math.ceil(visibleTeams.length / 5);
   const currentTeamPage = Math.min(teamPage, Math.max(teamPageCount, 1));
-  const paginatedTeams = visibleTeams.slice((currentTeamPage - 1) * 8, currentTeamPage * 8);
+  const paginatedTeams = visibleTeams.slice((currentTeamPage - 1) * 5, currentTeamPage * 5);
+  const filteredSuggestedRoles = suggestedTeamRoles.filter((role) =>
+    role.toLowerCase().includes(newTeamRole.trim().toLowerCase()),
+  );
+  const editingTeam = teams.find((team) => team.id === editingTeamId);
+  const editingTeamMembers = editingTeam
+    ? members.filter((member) => member.teamName === editingTeam.name)
+    : [];
 
   return (
     <div className="flex min-h-screen bg-[#f8fafb]">
@@ -478,23 +679,24 @@ export default function TeamPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <Link
-                href="/team/commissions"
-                className="inline-flex shrink-0 items-center gap-2 rounded-[7px] border border-[#2caf82] bg-white px-4 py-[11px] text-[13px] font-semibold text-[#238d68] no-underline hover:bg-[#e9f8f2]"
-              >
-                <span className="text-base leading-none">৳</span>See team member commission
-              </Link>
               <button
-                onClick={() => setIsTeamModalOpen(true)}
+                onClick={openTeamCreator}
                 className="inline-flex shrink-0 items-center gap-2 rounded-[7px] border border-[#2e6ff2] bg-white px-4 py-[11px] text-[13px] font-semibold text-[#2e6ff2] hover:bg-[#edf3ff]"
               >
-                <span className="text-base leading-none">+</span>Add new team
+                <span className="text-base leading-none">+</span>Add New Team
+              </button>
+              <button
+                type="button"
+                onClick={openTeamList}
+                className="inline-flex shrink-0 items-center gap-2 rounded-[7px] border border-[#e1e6ec] bg-white px-4 py-[11px] text-[13px] font-semibold text-[#687582] hover:bg-[#f3f5f7]"
+              >
+                Team List
               </button>
               <button
                 onClick={() => openNewMember()}
                 className="inline-flex shrink-0 items-center gap-2 rounded-[7px] bg-[#2e6ff2] px-4 py-[11px] text-[13px] font-semibold text-white shadow-[0_5px_12px_rgba(46,111,242,0.15)] hover:bg-[#1f5edd]"
               >
-                <span className="text-base leading-none">+</span>Add new member
+                <span className="text-base leading-none">+</span>Add New Member
               </button>
             </div>
           </div>
@@ -548,24 +750,38 @@ export default function TeamPage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px]">
+              <table className="w-full min-w-[980px] table-fixed">
+                <colgroup>
+                  <col style={{ width: "1%" }} />
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "1%" }} />
+                  <col style={{ width: "25%" }} />
+                  <col style={{ width: "1%" }} />
+                  <col style={{ width: "25%" }} />
+                  <col style={{ width: "1%" }} />
+                  <col style={{ width: "15%" }} />
+                  <col style={{ width: "1%" }} />
+                  <col style={{ width: "10%" }} />
+                </colgroup>
                 <thead>
                   <tr className="text-left">
+                    <th aria-hidden="true" className="p-0" />
                     <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
                       Team Name
                     </th>
+                    <th aria-hidden="true" className="p-0" />
                     <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
                       Role
                     </th>
-                    <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
-                      Technology / Skills
-                    </th>
+                    <th aria-hidden="true" className="p-0" />
                     <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
                       Team member
                     </th>
+                    <th aria-hidden="true" className="p-0" />
                     <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
                       Action
                     </th>
+                    <th aria-hidden="true" className="p-0" />
                     <th className="pb-3 text-[9px] font-semibold uppercase tracking-[0.08em] text-[#a2abb5]">
                       Activity log
                     </th>
@@ -574,14 +790,15 @@ export default function TeamPage() {
                 <tbody>
                   {paginatedTeams.map((team) => {
                     const roles = Array.from(
-                      new Set(team.members.map((member) => member.role)),
-                    );
-                    const skills = Array.from(
-                      new Set(team.members.flatMap((member) => member.skills ?? [])),
+                      new Set([
+                        ...(team.role ? [team.role] : []),
+                        ...team.members.map((member) => member.role),
+                      ]),
                     );
                     const firstMember = team.members[0];
                     return (
                       <tr className="border-t border-[#f0f2f4]" key={team.id}>
+                        <td aria-hidden="true" className="p-0" />
                         <td className="py-4">
                           <div className="flex items-center gap-2.5">
                             <div>
@@ -594,8 +811,9 @@ export default function TeamPage() {
                             </div>
                           </div>
                         </td>
+                        <td aria-hidden="true" className="p-0" />
                         <td className="py-4">
-                          <div className="flex max-w-[210px] flex-wrap gap-1.5">
+                          <div className="flex flex-wrap gap-1.5">
                             {roles.map((role) => (
                               <span key={role} className="rounded-full bg-[#edf3ff] px-2 py-1 text-[10px] font-semibold text-[#2e6ff2]">
                                 {role}
@@ -603,15 +821,7 @@ export default function TeamPage() {
                             ))}
                           </div>
                         </td>
-                        <td className="max-w-[250px] py-4">
-                          <div className="flex flex-wrap gap-1.5">
-                            {skills.length > 0 ? skills.map((skill) => (
-                              <span key={skill} className="rounded-full bg-[#f4f6f8] px-2 py-1 text-[10px] text-[#687582]">
-                                {skill}
-                              </span>
-                            )) : <span className="text-[10px] text-[#a2abb5]">-</span>}
-                          </div>
-                        </td>
+                        <td aria-hidden="true" className="p-0" />
                         <td className="py-4">
                           <div className="flex items-center">
                             {team.members.map((member, index) => {
@@ -642,9 +852,18 @@ export default function TeamPage() {
                             })}
                           </div>
                         </td>
+                        <td aria-hidden="true" className="p-0" />
                         <td>
                           <div className="flex items-center gap-2">
                             <button
+                              type="button"
+                              onClick={() => openTeamEditor(team)}
+                              className="rounded-md bg-[#edf3ff] px-2 py-1 text-[10px] font-semibold text-[#2e6ff2]"
+                            >
+                              Edit team
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => openNewMember(team.name)}
                               className="rounded-md bg-[#f3f5f7] px-2 py-1 text-[10px] font-semibold text-[#687582]"
                             >
@@ -652,6 +871,7 @@ export default function TeamPage() {
                             </button>
                           </div>
                         </td>
+                        <td aria-hidden="true" className="p-0" />
                         <td>
                           <button
                             type="button"
@@ -678,6 +898,87 @@ export default function TeamPage() {
         </div>
       </main>
 
+      {isTeamListOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#18232f]/45 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="team-list-title"
+        >
+          <section className="flex max-h-[85vh] w-full max-w-[620px] flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+            <header className="flex items-center justify-between border-b border-[#e6ebf1] px-6 py-5">
+              <div>
+                <h2
+                  id="team-list-title"
+                  className="font-sans text-xl font-bold text-[#18232f]"
+                >
+                  Team List
+                </h2>
+                <p className="mt-1 text-xs text-[#96a0ac]">
+                  Edit or remove workspace teams.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsTeamListOpen(false);
+                  setTeamListError("");
+                }}
+                className="grid size-8 place-items-center rounded-lg bg-[#f3f5f7] text-lg text-[#687582]"
+                aria-label="Close team list"
+              >
+                ×
+              </button>
+            </header>
+            {teamListError && (
+              <p role="alert" className="px-6 pt-4 text-xs text-[#d8665d]">
+                {teamListError}
+              </p>
+            )}
+            <div className="space-y-2 overflow-y-auto p-4">
+              {teams.map((team) => {
+                const memberCount = members.filter(
+                  (member) => member.teamName === team.name,
+                ).length;
+                return (
+                  <div
+                    key={team.id}
+                    className="flex items-center justify-between gap-4 rounded-lg border border-[#e6ebf1] bg-white p-4"
+                  >
+                    <div className="min-w-0">
+                      <strong className="block truncate text-sm text-[#26333d]">
+                        {team.logo} {team.name}
+                      </strong>
+                      <span className="mt-1 block text-[10px] text-[#89939f]">
+                        {team.role || "No role"} · {memberCount} {memberCount === 1 ? "member" : "members"}
+                      </span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openTeamEditor(team)}
+                        className="rounded-md bg-[#edf3ff] px-3 py-2 text-[10px] font-semibold text-[#2e6ff2]"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteTeam(team)}
+                        disabled={teams.length <= 1}
+                        title={teams.length <= 1 ? "At least one team must remain" : undefined}
+                        className="rounded-md bg-[#fff0ef] px-3 py-2 text-[10px] font-semibold text-[#d8665d] disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+      )}
+
       {/* Add New Team Modal */}
       {isTeamModalOpen && (
         <div
@@ -687,20 +988,29 @@ export default function TeamPage() {
         >
           <form
             onSubmit={handleAddTeam}
-            className="w-full max-w-[480px] overflow-hidden rounded-xl bg-white shadow-2xl"
+            className="w-full max-w-[760px] max-h-[90vh] overflow-y-auto rounded-xl bg-white shadow-2xl"
           >
-            <div className="flex items-center justify-between border-b border-[#e6ebf1] bg-white px-6 py-5">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#e6ebf1] bg-white px-6 py-5">
               <div>
                 <h2 className="font-sans text-xl font-bold text-[#18232f]">
-                  Add new team
+                  {editingTeamId ? "Edit team" : "Add New Team"}
                 </h2>
                 <p className="mt-1 text-xs text-[#96a0ac]">
-                  Create a new team group and choose a logo.
+                  {editingTeamId
+                    ? "Update team details, member roles, or assignments."
+                    : "Create a new team group and choose a logo."}
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setIsTeamModalOpen(false)}
+                onClick={() => {
+                  setIsTeamModalOpen(false);
+                  setEditingTeamId(null);
+                  setTeamMemberDrafts({});
+                  setNewTeamRole("");
+                  setRoleOptionsOpen(false);
+                  setTeamFormError("");
+                }}
                 className="grid size-8 place-items-center rounded-lg bg-[#f3f5f7] text-lg text-[#687582]"
                 aria-label="Close"
               >
@@ -709,16 +1019,109 @@ export default function TeamPage() {
             </div>
 
             <div className="grid gap-4 p-6 bg-[#f8fafb]">
-              <label className="text-[10px] font-semibold uppercase tracking-[0.05em] text-[#7e8995]">
-                Team Name
-                <input
-                  required
-                  className="mt-1 w-full rounded-md border border-[#e4e9ef] bg-white px-2.5 py-2 text-xs text-[#26333d] outline-none focus:border-[#2e6ff2]"
-                  value={newTeamName}
-                  onChange={(e) => setNewTeamName(e.target.value)}
-                  placeholder="e.g. Frontend Guild"
-                />
-              </label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="text-[10px] font-semibold uppercase tracking-[0.05em] text-[#7e8995]">
+                  Team Name
+                  <input
+                    required
+                    className="mt-1 w-full rounded-md border border-[#e4e9ef] bg-white px-2.5 py-2 text-xs text-[#26333d] outline-none focus:border-[#2e6ff2]"
+                    value={newTeamName}
+                    onChange={(event) => setNewTeamName(event.target.value)}
+                    placeholder="e.g. Frontend Guild"
+                  />
+                </label>
+                <label className="relative text-[10px] font-semibold uppercase tracking-[0.05em] text-[#7e8995]">
+                  Role
+                  <input
+                    required
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={roleOptionsOpen}
+                    aria-controls="team-role-options"
+                    aria-activedescendant={
+                      activeRoleOption >= 0
+                        ? `team-role-option-${activeRoleOption}`
+                        : undefined
+                    }
+                    autoComplete="off"
+                    value={newTeamRole}
+                    onFocus={() => setRoleOptionsOpen(true)}
+                    onBlur={() => {
+                      window.setTimeout(() => setRoleOptionsOpen(false), 120);
+                    }}
+                    onChange={(event) => {
+                      setNewTeamRole(event.target.value);
+                      setActiveRoleOption(-1);
+                      setRoleOptionsOpen(true);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "ArrowDown" && filteredSuggestedRoles.length) {
+                        event.preventDefault();
+                        setRoleOptionsOpen(true);
+                        setActiveRoleOption((current) =>
+                          Math.min(current + 1, filteredSuggestedRoles.length - 1),
+                        );
+                      } else if (event.key === "ArrowUp" && filteredSuggestedRoles.length) {
+                        event.preventDefault();
+                        setActiveRoleOption((current) => Math.max(current - 1, 0));
+                      } else if (
+                        event.key === "Enter" &&
+                        roleOptionsOpen &&
+                        activeRoleOption >= 0
+                      ) {
+                        event.preventDefault();
+                        setNewTeamRole(filteredSuggestedRoles[activeRoleOption]);
+                        setRoleOptionsOpen(false);
+                        setActiveRoleOption(-1);
+                      } else if (event.key === "Escape") {
+                        setRoleOptionsOpen(false);
+                        setActiveRoleOption(-1);
+                      }
+                    }}
+                    placeholder="Choose or type a role"
+                    className="mt-1 w-full rounded-md border border-[#e4e9ef] bg-white px-2.5 py-2 text-xs font-normal normal-case text-[#26333d] outline-none focus:border-[#2e6ff2]"
+                  />
+                  {roleOptionsOpen && filteredSuggestedRoles.length > 0 && (
+                    <ul
+                      id="team-role-options"
+                      role="listbox"
+                      className="absolute left-0 right-0 top-full z-30 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-[#e1e6ec] bg-white p-1 shadow-lg"
+                    >
+                      {filteredSuggestedRoles.map((role, index) => (
+                        <li
+                          id={`team-role-option-${index}`}
+                          key={role}
+                          role="option"
+                          aria-selected={activeRoleOption === index}
+                        >
+                          <button
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onMouseEnter={() => setActiveRoleOption(index)}
+                            onClick={() => {
+                              setNewTeamRole(role);
+                              setRoleOptionsOpen(false);
+                              setActiveRoleOption(-1);
+                            }}
+                            className={`block w-full rounded px-3 py-2 text-left text-xs font-normal normal-case transition ${
+                              activeRoleOption === index
+                                ? "bg-[#edf3ff] text-[#2e6ff2]"
+                                : "bg-white text-[#26333d] hover:bg-[#f3f6f9]"
+                            }`}
+                          >
+                            {role}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </label>
+              </div>
+              {teamFormError && (
+                <p role="alert" className="text-xs text-[#d8665d]">
+                  {teamFormError}
+                </p>
+              )}
 
               <div>
                 <label className="text-[10px] font-semibold uppercase tracking-[0.05em] text-[#7e8995]">
@@ -741,12 +1144,85 @@ export default function TeamPage() {
                   ))}
                 </div>
               </div>
+              {editingTeamId && (
+                <div className="border-t border-[#e6ebf1] pt-4">
+                  <h3 className="text-xs font-bold text-[#26333d]">
+                    Team members
+                  </h3>
+                  <p className="mt-1 text-[10px] text-[#89939f]">
+                    Update each member&apos;s role or assigned team.
+                  </p>
+                  <div className="mt-3 max-h-56 space-y-2 overflow-y-auto">
+                    {editingTeamMembers.map((member) => {
+                      const draft = teamMemberDrafts[member.id] ?? {
+                        role: member.role,
+                        teamName: member.teamName,
+                      };
+                      return (
+                        <div
+                          key={member.id}
+                          className="grid gap-2 rounded-lg border border-[#e6ebf1] bg-white p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] sm:items-end"
+                        >
+                          <strong className="truncate text-xs text-[#26333d]">
+                            {member.name}
+                          </strong>
+                          <label className="text-[9px] font-semibold uppercase text-[#89939f]">
+                            Role
+                            <input
+                              value={draft.role}
+                              onChange={(event) =>
+                                updateTeamMemberDraft(
+                                  member.id,
+                                  "role",
+                                  event.target.value,
+                                )
+                              }
+                              aria-label={`Role for ${member.name}`}
+                              className="mt-1 w-full rounded-md border border-[#e1e6ec] px-2 py-1.5 text-xs font-normal normal-case text-[#26333d] outline-none focus:border-[#2e6ff2]"
+                            />
+                          </label>
+                          <label className="text-[9px] font-semibold uppercase text-[#89939f]">
+                            Assigned team
+                            <select
+                              value={draft.teamName}
+                              onChange={(event) =>
+                                updateTeamMemberDraft(
+                                  member.id,
+                                  "teamName",
+                                  event.target.value,
+                                )
+                              }
+                              aria-label={`Team for ${member.name}`}
+                              className="mt-1 w-full rounded-md border border-[#e1e6ec] bg-white px-2 py-1.5 text-xs font-normal normal-case text-[#26333d] outline-none focus:border-[#2e6ff2]"
+                            >
+                              {teams.map((team) => (
+                                <option key={team.id} value={team.name}>
+                                  {team.logo} {team.id === editingTeamId && newTeamName.trim()
+                                    ? newTeamName.trim()
+                                    : team.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="flex justify-end gap-3 border-t border-[#e6ebf1] bg-white px-6 py-4">
+            <div className="sticky bottom-0 flex justify-end gap-3 border-t border-[#e6ebf1] bg-white px-6 py-4">
               <button
                 type="button"
-                onClick={() => setIsTeamModalOpen(false)}
+                onClick={() => {
+                  setIsTeamModalOpen(false);
+                  setEditingTeamId(null);
+                  setTeamMemberDrafts({});
+                  setNewTeamRole("");
+                  setRoleOptionsOpen(false);
+                  setTeamFormError("");
+                }}
                 className="rounded-lg border border-[#e1e6ec] bg-white px-4 py-2.5 text-xs font-semibold text-[#687582]"
               >
                 Cancel
@@ -755,7 +1231,7 @@ export default function TeamPage() {
                 type="submit"
                 className="rounded-lg bg-[#2e6ff2] px-5 py-2.5 text-xs font-semibold text-white"
               >
-                Create team
+                {editingTeamId ? "Save changes" : "Create team"}
               </button>
             </div>
           </form>
@@ -767,11 +1243,8 @@ export default function TeamPage() {
         <MemberModal
           form={form}
           teams={teams}
+          registeredUsers={registeredUsers}
           editing={Boolean(editingId)}
-          skillInput={skillInput}
-          setSkillInput={setSkillInput}
-          addSkill={addSkill}
-          removeSkill={removeSkill}
           updateField={updateField}
           onSelectRegisteredUser={handleSelectRegisteredUser}
           onSubmit={submitMember}
@@ -811,11 +1284,8 @@ function TeamPagination({
 function MemberModal({
   form,
   teams,
+  registeredUsers,
   editing,
-  skillInput,
-  setSkillInput,
-  addSkill,
-  removeSkill,
   updateField,
   onSelectRegisteredUser,
   onSubmit,
@@ -823,11 +1293,8 @@ function MemberModal({
 }: {
   form: MemberForm;
   teams: TeamGroup[];
+  registeredUsers: RegisteredUser[];
   editing: boolean;
-  skillInput: string;
-  setSkillInput: (val: string) => void;
-  addSkill: () => void;
-  removeSkill: (val: string) => void;
   updateField: (field: keyof MemberForm, value: unknown) => void;
   onSelectRegisteredUser: (userId: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -837,8 +1304,6 @@ function MemberModal({
     "mt-1 w-full rounded-md border border-[#e4e9ef] bg-white px-2.5 py-2 text-xs text-[#26333d] outline-none transition focus:border-[#2e6ff2] focus:ring-2 focus:ring-[#edf3ff]";
   const labelClass =
     "text-[10px] font-semibold uppercase tracking-[0.05em] text-[#7e8995]";
-
-  const skillsList = form.skills ?? [];
 
   return (
     <div
@@ -853,7 +1318,7 @@ function MemberModal({
         <div className="flex items-center justify-between border-b border-[#e6ebf1] bg-white px-6 py-5 sticky top-0 z-10">
           <div>
             <h2 className="font-sans text-xl font-bold text-[#18232f]">
-              {editing ? "Edit team member" : "Add team member"}
+              {editing ? "Edit team member" : "Add Team Member"}
             </h2>
             <p className="mt-1 text-xs text-[#96a0ac]">
               Select registered user or enter details & assign to a team.
@@ -884,7 +1349,9 @@ function MemberModal({
                   defaultValue=""
                 >
                   <option value="" disabled>
-                    -- Select User by Email or Phone --
+                    {registeredUsers.length
+                      ? "-- Select User by Email or Phone --"
+                      : "No profiles with complete contact information"}
                   </option>
                   {registeredUsers.map((u) => (
                     <option key={u.id} value={u.id}>
@@ -922,9 +1389,7 @@ function MemberModal({
                 }
               >
                 <option value="Active">Active</option>
-                <option value="In a meeting">In a meeting</option>
-                <option value="On leave">On leave</option>
-                <option value="Offline">Offline</option>
+                <option value="Inactive">Inactive</option>
               </select>
             </label>
           </div>
@@ -967,54 +1432,12 @@ function MemberModal({
               Role / Position (from user profile)
               <input
                 required
+                readOnly
                 className={inputClass}
                 value={form.role}
-                onChange={(e) => updateField("role", e.target.value)}
-                placeholder="e.g. Frontend Developer"
+                placeholder="Set your role in My Profile"
               />
             </label>
-          </div>
-
-          <div>
-            <label className={labelClass}>Technology / Skills (from user profile)</label>
-            <div className="mt-1 flex gap-2">
-              <input
-                className={inputClass.replace("mt-1 ", "")}
-                value={skillInput}
-                onChange={(e) => setSkillInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addSkill();
-                  }
-                }}
-                placeholder="Type technology/skill and press Add"
-              />
-              <button
-                type="button"
-                onClick={addSkill}
-                className="rounded-lg bg-[#edf3ff] px-3 text-xs font-semibold text-[#2e6ff2]"
-              >
-                Add
-              </button>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {skillsList.map((skill) => (
-                <span
-                  key={skill}
-                  className="inline-flex items-center gap-1 rounded-full bg-[#f4f6f8] px-2.5 py-1 text-[10px] text-[#687582]"
-                >
-                  {skill}
-                  <button
-                    type="button"
-                    onClick={() => removeSkill(skill)}
-                    className="hover:text-red-500"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
           </div>
         </div>
 
